@@ -84,6 +84,7 @@ a { text-decoration: none; color: inherit; }
   color: var(--text-bright);
   letter-spacing: .05em;
 }
+.nav-logo a { text-decoration: none; display: inline-flex; align-items: center; gap: 0; }
 .nav-logo .prompt { color: var(--green); }
 .nav-logo .nav-name { color: var(--text-bright); }
 
