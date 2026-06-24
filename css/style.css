@@ -462,38 +462,95 @@ a { text-decoration: none; color: inherit; }
 ══════════════════════════════ */
 .skills-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
 }
 .skill-category {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  transition: border-color var(--transition);
+  border-radius: 12px;
+  padding: 24px 26px 22px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease;
 }
-.skill-category:hover { border-color: var(--border-green); }
-.skill-cat-title {
+.skill-category::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.skill-category:hover {
+  border-color: var(--border-green);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 36px #00000048;
+}
+
+/* Per-category top accent */
+.sc-cloud::before      { background: #00ff88; box-shadow: 0 0 10px #00ff8870; }
+.sc-containers::before { background: #22d3ee; box-shadow: 0 0 10px #22d3ee70; }
+.sc-iac::before        { background: #a3e635; box-shadow: 0 0 10px #a3e63570; }
+.sc-cicd::before       { background: #818cf8; box-shadow: 0 0 10px #818cf870; }
+.sc-monitoring::before { background: #38bdf8; box-shadow: 0 0 10px #38bdf870; }
+.sc-os::before         { background: #fb923c; box-shadow: 0 0 10px #fb923c70; }
+
+/* Card header */
+.sc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 12px;
+}
+.sc-meta { display: flex; align-items: center; gap: 12px; }
+.sc-num {
   font-family: var(--font-mono);
-  font-size: .72rem;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .1em;
   color: var(--text-dim);
-  margin-bottom: 12px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  opacity: .6;
+  flex-shrink: 0;
 }
+.sc-title {
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -.01em;
+  line-height: 1.2;
+}
+.sc-level {
+  font-family: var(--font-mono);
+  font-size: .52rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Tags */
 .skill-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .skill-tag {
-  padding: 5px 12px;
+  padding: 6px 14px;
   background: #00ff8808;
   border: 1px solid #00ff8825;
-  border-radius: 4px;
+  border-radius: 6px;
   font-family: var(--font-mono);
   font-size: .7rem;
-  color: var(--green);
+  color: #7ddfb0;
   letter-spacing: .04em;
-  transition: background var(--transition);
+  transition: background .2s, border-color .2s, color .2s;
 }
-.skill-tag:hover { background: #00ff8818; }
+.skill-tag:hover {
+  background: #00ff8818;
+  border-color: var(--green);
+  color: var(--green);
+}
 
 /* ══════════════════════════════
    SERVICES — Interactive Split
