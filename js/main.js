@@ -144,6 +144,30 @@ if (track) {
   });
 }
 
+// ── Services Interactive Panel ──
+const svcMenuItems = document.querySelectorAll('.svc-menu-item');
+const svcDetails = document.querySelectorAll('.svc-detail');
+
+svcMenuItems.forEach(item => {
+  item.addEventListener('click', () => {
+    const idx = item.dataset.svc;
+    svcMenuItems.forEach(i => i.classList.remove('active'));
+    svcDetails.forEach(d => d.classList.remove('active'));
+    item.classList.add('active');
+    document.querySelector(`.svc-detail[data-svc="${idx}"]`).classList.add('active');
+  });
+});
+
+// ── Accordion for Experience & Projects ──
+document.querySelectorAll('.accordion-trigger').forEach(trigger => {
+  trigger.addEventListener('click', (e) => {
+    if (e.target.closest('a')) return; // don't toggle on link clicks
+    const card = trigger.closest('.accordion-card');
+    const isOpen = card.classList.contains('open');
+    card.classList.toggle('open', !isOpen);
+  });
+});
+
 // ── Smooth scroll for anchor links ──
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
   anchor.addEventListener('click', e => {

@@ -124,7 +124,7 @@
       </div>
       <div class="about-grid">
         <div class="about-text">
-          <p>I'm a DevOps engineer with a passion for building robust, automated infrastructure. By day I work on large-scale systems at my full-time role — by weekend, I take on freelance projects where I can bring that same expertise to smaller teams that need it most.</p>
+          <p>I'm a DevOps engineer with a passion for building robust, automated infrastructure. I work on large-scale systems across cloud platforms and bring that same production-grade expertise to startups and smaller teams who need it most.</p>
           <p>I believe good DevOps isn't just about tools — it's about building systems that give your developers confidence to ship, and give you peace of mind in production.</p>
           <div class="about-tags">
             <span>Infrastructure as Code</span>
@@ -145,8 +145,9 @@
             <div class="ac-line"><span class="t-green">name</span>       <span>Souvik</span></div>
             <div class="ac-line"><span class="t-green">role</span>       <span>DevOps Engineer</span></div>
             <div class="ac-line"><span class="t-green">available</span>  <span class="t-green">true</span></div>
-            <div class="ac-line"><span class="t-green">schedule</span>   <span>All days · flexible hours</span></div>
+            <div class="ac-line"><span class="t-green">schedule</span>   <span>Flexible · on your timeline</span></div>
             <div class="ac-line"><span class="t-green">clouds</span>     <span>AWS · OCI · GCP</span></div>
+            <div class="ac-line"><span class="t-green">education</span>  <span>B.Tech CSE · 2023</span></div>
             <div class="ac-line"><span class="t-green">timezone</span>   <span>IST (UTC+5:30)</span></div>
             <div class="ac-line"><span class="t-green">response</span>   <span>&lt; 24 hours</span></div>
           </div>
@@ -237,62 +238,161 @@
         <span class="section-tag">$ cat services.json</span>
         <h2>What I Can Do For You</h2>
       </div>
-      <div class="services-grid">
 
-        <div class="service-card">
-          <div class="service-icon">☁️</div>
-          <h3>Cloud Infrastructure</h3>
-          <p>Design, provision, and manage scalable cloud environments on AWS, OCI, or GCP. VPCs, IAM, networking, cost optimisation — done right from day one.</p>
-          <div class="service-tags">
-            <span>AWS</span><span>OCI</span><span>GCP</span><span>Terraform</span>
+      <div class="services-interactive">
+
+        <!-- Left: service menu -->
+        <div class="svc-menu">
+          <div class="svc-menu-item active" data-svc="0">
+            <span class="svc-num">01</span>
+            <span class="svc-menu-name">Cloud Infrastructure</span>
+            <span class="svc-arrow">›</span>
+          </div>
+          <div class="svc-menu-item" data-svc="1">
+            <span class="svc-num">02</span>
+            <span class="svc-menu-name">CI/CD Pipeline Setup</span>
+            <span class="svc-arrow">›</span>
+          </div>
+          <div class="svc-menu-item" data-svc="2">
+            <span class="svc-num">03</span>
+            <span class="svc-menu-name">Container & K8s</span>
+            <span class="svc-arrow">›</span>
+          </div>
+          <div class="svc-menu-item" data-svc="3">
+            <span class="svc-num">04</span>
+            <span class="svc-menu-name">Infrastructure as Code</span>
+            <span class="svc-arrow">›</span>
+          </div>
+          <div class="svc-menu-item" data-svc="4">
+            <span class="svc-num">05</span>
+            <span class="svc-menu-name">Monitoring & Observability</span>
+            <span class="svc-arrow">›</span>
+          </div>
+          <div class="svc-menu-item" data-svc="5">
+            <span class="svc-num">06</span>
+            <span class="svc-menu-name">DevSecOps & Hardening</span>
+            <span class="svc-arrow">›</span>
           </div>
         </div>
 
-        <div class="service-card">
-          <div class="service-icon">🔁</div>
-          <h3>CI/CD Pipeline Setup</h3>
-          <p>End-to-end automated pipelines — build, test, security scan, and deploy. From zero to production-ready GitOps in days, not months.</p>
-          <div class="service-tags">
-            <span>GitHub Actions</span><span>Jenkins</span><span>ArgoCD</span>
-          </div>
-        </div>
+        <!-- Right: detail panel -->
+        <div class="svc-panel">
 
-        <div class="service-card">
-          <div class="service-icon">🐳</div>
-          <h3>Container & K8s Orchestration</h3>
-          <p>Containerise your apps, set up Kubernetes clusters, configure auto-scaling, ingress, RBAC, and make your workloads truly cloud-native.</p>
-          <div class="service-tags">
-            <span>Docker</span><span>Kubernetes</span><span>Helm</span>
+          <div class="svc-detail active" data-svc="0">
+            <div class="svc-detail-icon">☁️</div>
+            <h3>Cloud Infrastructure</h3>
+            <p>Design, provision, and manage scalable cloud environments on AWS, OCI, or GCP. VPCs, IAM, networking, cost optimisation — built right the first time so you never have to redo it.</p>
+            <ul class="svc-bullets">
+              <li>Multi-cloud architecture across AWS, OCI & GCP</li>
+              <li>VPC design, subnetting, peering & transit gateways</li>
+              <li>IAM policies, roles & least-privilege access</li>
+              <li>Cost optimisation — reserved instances, right-sizing</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>AWS</span><span>OCI</span><span>GCP</span><span>Terraform</span><span>Networking</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> terraform apply -target=module.vpc<br/>
+              <span class="t-green">✓</span> 14 resources created · <span class="t-green">0 destroyed</span>
+            </div>
           </div>
-        </div>
 
-        <div class="service-card">
-          <div class="service-icon">📦</div>
-          <h3>Infrastructure as Code</h3>
-          <p>Replace manual click-ops with reproducible, version-controlled infrastructure using Terraform and Ansible. Consistent across every environment.</p>
-          <div class="service-tags">
-            <span>Terraform</span><span>Ansible</span><span>GitOps</span>
+          <div class="svc-detail" data-svc="1">
+            <div class="svc-detail-icon">🔁</div>
+            <h3>CI/CD Pipeline Setup</h3>
+            <p>End-to-end automated pipelines — build, test, security scan, and deploy. From zero to production-ready GitOps in days. Your developers push code, the pipeline handles the rest.</p>
+            <ul class="svc-bullets">
+              <li>GitHub Actions / Jenkins / GitLab CI pipeline design</li>
+              <li>Automated testing, linting & security scanning stages</li>
+              <li>GitOps-based deployments with ArgoCD / FluxCD</li>
+              <li>Multi-environment promotion (dev → staging → prod)</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>GitHub Actions</span><span>Jenkins</span><span>ArgoCD</span><span>GitOps</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> git push origin main<br/>
+              <span class="t-green">✓</span> Pipeline triggered · deploy in <span class="t-green">4m 12s</span>
+            </div>
           </div>
-        </div>
 
-        <div class="service-card">
-          <div class="service-icon">📊</div>
-          <h3>Monitoring & Observability</h3>
-          <p>Full-stack observability setup — metrics, logs, traces, and alerting. Know what's broken before your users do.</p>
-          <div class="service-tags">
-            <span>Prometheus</span><span>Grafana</span><span>ELK</span>
+          <div class="svc-detail" data-svc="2">
+            <div class="svc-detail-icon">🐳</div>
+            <h3>Container & K8s Orchestration</h3>
+            <p>Containerise your apps, set up production Kubernetes clusters, configure auto-scaling, ingress, RBAC, and make your workloads truly cloud-native and resilient.</p>
+            <ul class="svc-bullets">
+              <li>Docker containerisation & multi-stage build optimisation</li>
+              <li>EKS / GKE / OKE cluster setup & hardening</li>
+              <li>HPA, VPA & Cluster Autoscaler configuration</li>
+              <li>Ingress, service mesh & zero-downtime deployments</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>Docker</span><span>Kubernetes</span><span>Helm</span><span>EKS</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> kubectl get pods -n production<br/>
+              <span class="t-green">✓</span> 24/24 Running · <span class="t-green">0 pending</span>
+            </div>
           </div>
-        </div>
 
-        <div class="service-card">
-          <div class="service-icon">🔒</div>
-          <h3>DevSecOps & Hardening</h3>
-          <p>Bake security into your pipeline. Container scanning, secrets management, network hardening, IAM audits, and compliance readiness.</p>
-          <div class="service-tags">
-            <span>Vault</span><span>Trivy</span><span>OPA</span><span>SAST</span>
+          <div class="svc-detail" data-svc="3">
+            <div class="svc-detail-icon">📦</div>
+            <h3>Infrastructure as Code</h3>
+            <p>Replace risky manual click-ops with reproducible, version-controlled infrastructure. Every environment is consistent, every change is reviewed, and rollback is a git revert away.</p>
+            <ul class="svc-bullets">
+              <li>Terraform module design with remote state & locking</li>
+              <li>Ansible playbooks for config management & hardening</li>
+              <li>PR-based infrastructure workflows with Atlantis</li>
+              <li>Multi-account & multi-region IaC architecture</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>Terraform</span><span>Ansible</span><span>Atlantis</span><span>GitOps</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> terraform plan<br/>
+              <span class="t-green">✓</span> 0 to destroy · <span class="t-green">3 to add</span>
+            </div>
           </div>
-        </div>
 
+          <div class="svc-detail" data-svc="4">
+            <div class="svc-detail-icon">📊</div>
+            <h3>Monitoring & Observability</h3>
+            <p>Full-stack observability — metrics, logs, traces, and alerting. Know what's broken before your users do. Sleep better knowing your systems are watched 24/7.</p>
+            <ul class="svc-bullets">
+              <li>Prometheus + Grafana stack setup & dashboard design</li>
+              <li>ELK / Loki centralised log aggregation</li>
+              <li>Distributed tracing with Jaeger / Tempo</li>
+              <li>PagerDuty / Alertmanager on-call routing</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>Prometheus</span><span>Grafana</span><span>ELK</span><span>Loki</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> curl /metrics | grep uptime<br/>
+              <span class="t-green">✓</span> uptime_seconds <span class="t-green">2592000</span>
+            </div>
+          </div>
+
+          <div class="svc-detail" data-svc="5">
+            <div class="svc-detail-icon">🔒</div>
+            <h3>DevSecOps & Hardening</h3>
+            <p>Bake security into every stage of your pipeline. Catch vulnerabilities before they reach production — not after. Compliance-ready infrastructure for regulated industries.</p>
+            <ul class="svc-bullets">
+              <li>Container image scanning with Trivy & Grype</li>
+              <li>Secrets management with HashiCorp Vault</li>
+              <li>Policy-as-code with OPA / Conftest</li>
+              <li>IAM audits, network hardening & SAST integration</li>
+            </ul>
+            <div class="svc-detail-tags">
+              <span>Vault</span><span>Trivy</span><span>OPA</span><span>SAST</span><span>Cosign</span>
+            </div>
+            <div class="svc-terminal">
+              <span class="t-green">$</span> trivy image myapp:latest<br/>
+              <span class="t-green">✓</span> 0 CRITICAL · <span class="t-green">0 HIGH</span>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   </section>
@@ -308,41 +408,76 @@
 
         <div class="timeline-item">
           <div class="timeline-dot"></div>
-          <div class="timeline-card">
-            <div class="tc-header">
+          <div class="timeline-card accordion-card">
+            <div class="tc-header accordion-trigger">
               <div>
-                <div class="tc-role">Senior DevOps Engineer</div>
-                <div class="tc-company">Company Name <span class="tc-badge">Full-time</span></div>
+                <div class="tc-role">DevOps Engineer</div>
+                <div class="tc-company">Quara AI Tech <span class="tc-badge">Full-time</span></div>
               </div>
-              <div class="tc-duration">Jan 2023 – Present</div>
+              <div class="tc-right">
+                <div class="tc-duration">2025 – Present</div>
+                <span class="acc-chevron">›</span>
+              </div>
             </div>
-            <ul class="tc-points">
-              <li>Managed and scaled cloud infrastructure on AWS handling production workloads</li>
-              <li>Built and maintained CI/CD pipelines reducing deployment time by 60%</li>
-              <li>Led migration of legacy services to Kubernetes, improving reliability and cost efficiency</li>
-            </ul>
-            <div class="tc-tags">
-              <span>AWS</span><span>Kubernetes</span><span>Terraform</span><span>GitHub Actions</span>
+            <div class="card-body">
+              <ul class="tc-points">
+                <li>Managed and scaled cloud infrastructure on AWS handling production workloads</li>
+                <li>Built and maintained CI/CD pipelines reducing deployment time by 60%</li>
+                <li>Led migration of legacy services to Kubernetes, improving reliability and cost efficiency</li>
+              </ul>
+              <div class="tc-tags">
+                <span>AWS</span><span>Kubernetes</span><span>Terraform</span><span>GitHub Actions</span>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="timeline-item">
           <div class="timeline-dot"></div>
-          <div class="timeline-card">
-            <div class="tc-header">
+          <div class="timeline-card accordion-card">
+            <div class="tc-header accordion-trigger">
               <div>
-                <div class="tc-role">DevOps Engineer</div>
-                <div class="tc-company">Company Name <span class="tc-badge">Full-time</span></div>
+                <div class="tc-role">Associate DevOps Engineer</div>
+                <div class="tc-company">Quara Digital Tech <span class="tc-badge">Full-time</span></div>
               </div>
-              <div class="tc-duration">Jun 2021 – Dec 2022</div>
+              <div class="tc-right">
+                <div class="tc-duration">2023 – 2025</div>
+                <span class="acc-chevron">›</span>
+              </div>
             </div>
-            <ul class="tc-points">
-              <li>Automated infrastructure provisioning using Terraform and Ansible across multiple environments</li>
-              <li>Set up monitoring and alerting with Prometheus and Grafana for 99.9% uptime SLA</li>
-            </ul>
-            <div class="tc-tags">
-              <span>GCP</span><span>Docker</span><span>Ansible</span><span>Prometheus</span>
+            <div class="card-body">
+              <ul class="tc-points">
+                <li>Automated infrastructure provisioning using Terraform and Ansible across multiple environments</li>
+                <li>Set up monitoring and alerting with Prometheus and Grafana for 99.9% uptime SLA</li>
+              </ul>
+              <div class="tc-tags">
+                <span>GCP</span><span>Docker</span><span>Ansible</span><span>Prometheus</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-card accordion-card">
+            <div class="tc-header accordion-trigger">
+              <div>
+                <div class="tc-role">Bachelor of Technology — Computer Science</div>
+                <div class="tc-company">Lovely Professional University, Phagwara <span class="tc-badge">Education</span></div>
+              </div>
+              <div class="tc-right">
+                <div class="tc-duration">2019 – 2023</div>
+                <span class="acc-chevron">›</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <ul class="tc-points">
+                <li>Graduated with a B.Tech in Computer Science Engineering</li>
+                <li>Focused on networking, operating systems, and distributed computing</li>
+              </ul>
+              <div class="tc-tags">
+                <span>Computer Science</span><span>Networking</span><span>OS</span>
+              </div>
             </div>
           </div>
         </div>
@@ -351,35 +486,186 @@
     </div>
   </section>
 
-  <!-- PROJECTS (PLACEHOLDER) -->
+  <!-- PROJECTS -->
   <section class="section section-alt" id="projects">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">$ ls ./projects/</span>
         <h2>Projects</h2>
       </div>
-      <div class="projects-placeholder">
-        <div class="terminal-window terminal-small">
-          <div class="terminal-header">
-            <span class="dot red"></span>
-            <span class="dot yellow"></span>
-            <span class="dot green-dot"></span>
-            <span class="terminal-title">projects.sh</span>
-          </div>
-          <div class="terminal-body">
-            <div class="terminal-line">
-              <span class="prompt-line">$</span>
-              <span class="cmd-text"> ls -la ./projects/</span>
+      <div class="projects-grid">
+
+        <!-- Wasalt -->
+        <div class="project-card featured-project accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">Wasalt — PropTech Platform</div>
+              <div class="project-url"><a href="https://wasalt.sa" target="_blank" rel="noopener">wasalt.sa ↗</a></div>
             </div>
-            <div class="terminal-output">
-              <span class="t-green">loading</span> project case studies...<br/>
-              <span class="t-yellow">status:</span> content being prepared<br/>
-              <span class="t-yellow">eta:</span>    coming soon<br/>
-              <span class="t-green">hint:</span>   check back after the weekend <span class="cursor-blink">_</span>
+            <div class="tc-right"><span class="project-badge">Production</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">Saudi Arabia's leading AI-backed real estate platform — serving <strong>750,000+ registered users</strong> and generating <strong>100,000+ monthly leads</strong>. A high-traffic, mission-critical PropTech product under Quara Holding.</p>
+            <ul class="project-points">
+              <li>Designed and managed multi-cloud infrastructure across <strong>OCI and AWS</strong> supporting production workloads at scale</li>
+              <li>Built end-to-end <strong>CI/CD pipelines</strong> for web and mobile app deployments with zero-downtime releases</li>
+              <li>Provisioned and maintained infrastructure using <strong>Terraform</strong> — full IaC across all environments</li>
+              <li>Implemented <strong>Kubernetes orchestration</strong> for containerised microservices with auto-scaling</li>
+              <li>Set up observability stack with <strong>Prometheus + Grafana</strong> maintaining 99.9% uptime SLA</li>
+            </ul>
+            <div class="project-tags">
+              <span>OCI</span><span>AWS</span><span>Kubernetes</span><span>Terraform</span><span>CI/CD</span><span>Multi-cloud</span><span>Docker</span>
             </div>
           </div>
         </div>
-        <p class="projects-note">Real-world case studies from cloud migrations, K8s setups, and CI/CD overhauls — anonymised and coming soon.</p>
+
+        <!-- Wasalt Auction -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">Wasalt Auction Platform</div>
+              <div class="project-url"><a href="https://auction.wasalt.sa" target="_blank" rel="noopener">auction.wasalt.sa ↗</a></div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Production</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">Real estate auction platform built on top of the Wasalt ecosystem — enabling timed competitive bidding on verified properties across Saudi Arabia.</p>
+            <ul class="project-points">
+              <li>Managed dedicated infrastructure for high-concurrency auction events with real-time bidding requirements</li>
+              <li>Configured <strong>auto-scaling policies</strong> to handle traffic spikes during live auctions</li>
+              <li>Maintained isolated deployment pipeline ensuring auction platform stability independent of main Wasalt releases</li>
+            </ul>
+            <div class="project-tags">
+              <span>OCI</span><span>Kubernetes</span><span>Terraform</span><span>Auto-scaling</span><span>CI/CD</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DarGlobal -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">DarGlobal — Luxury Real Estate</div>
+              <div class="project-url"><a href="https://darglobal.co.uk" target="_blank" rel="noopener">darglobal.co.uk ↗</a></div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Production</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">London Stock Exchange-listed international luxury real estate developer with a <strong>$23B development portfolio</strong> across UAE, Saudi Arabia, UK, Spain, Greece and beyond. Partnered with brands like Lamborghini, Aston Martin, and Trump Organization.</p>
+            <ul class="project-points">
+              <li>Supported cloud infrastructure and deployment pipelines for a globally distributed, high-profile real estate platform</li>
+              <li>Managed <strong>multi-region infrastructure</strong> to serve international audiences with low latency</li>
+              <li>Implemented <strong>security hardening</strong> and compliance-ready infrastructure for an LSE-listed entity</li>
+            </ul>
+            <div class="project-tags">
+              <span>AWS</span><span>Terraform</span><span>CI/CD</span><span>Security</span><span>Multi-region</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="projects-subheader">
+        <span class="section-tag" style="margin-bottom:0">$ ls ./freelance/</span>
+        <h3>Freelance Projects <span class="t-green">— End-to-End DevOps</span></h3>
+      </div>
+      <div class="projects-grid">
+
+        <!-- Cricket or Nothing -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">Cricket or Nothing</div>
+              <div class="project-url">Real-Time Multiplayer Mobile Game · Android &amp; iOS</div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Freelance</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">Card-based real-time multiplayer cricket game with server-controlled gameplay validation and a fixed outcome system. Launched on both Google Play Store and Apple App Store.</p>
+            <ul class="project-points">
+              <li>Took full <strong>end-to-end DevOps ownership</strong> — from dev environment to production</li>
+              <li>Set up <strong>CI/CD pipelines</strong> for automated mobile builds and app store deployments</li>
+              <li>Provisioned and managed <strong>dedicated game server infrastructure</strong> optimised for real-time multiplayer concurrency</li>
+              <li>Implemented monitoring and crash alerting — significantly reduced crash rate post-launch</li>
+              <li>Containerised backend services with <strong>Docker</strong> for consistent deployments across environments</li>
+            </ul>
+            <div class="project-tags">
+              <span>CI/CD</span><span>Docker</span><span>Game Servers</span><span>Monitoring</span><span>Mobile DevOps</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memoria -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">Memoria</div>
+              <div class="project-url">Social Memory App · Mobile Application</div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Freelance</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">A social platform for capturing, storing, and sharing life memories — with media-heavy features requiring reliable, scalable cloud storage and delivery infrastructure.</p>
+            <ul class="project-points">
+              <li>Handled <strong>end-to-end DevOps</strong> — infra setup, pipelines, and production operations</li>
+              <li>Architected <strong>cloud storage and CDN</strong> for efficient media (photos/videos) delivery at scale</li>
+              <li>Built automated <strong>CI/CD pipeline</strong> for continuous mobile app delivery</li>
+              <li>Set up environment management (dev, staging, production) with <strong>Terraform</strong></li>
+              <li>Configured <strong>backup and disaster recovery</strong> for user-generated content</li>
+            </ul>
+            <div class="project-tags">
+              <span>Terraform</span><span>CDN</span><span>CI/CD</span><span>Cloud Storage</span><span>Mobile DevOps</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wise Talk -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">Wise Talk</div>
+              <div class="project-url">Career Mentorship Platform · Mobile &amp; Web</div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Freelance</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">On-demand mentorship platform connecting career experts with seekers via real-time chat and video sessions. Multi-user ecosystem — Experts, Seekers, and Admins — with integrated payments and KYC.</p>
+            <ul class="project-points">
+              <li>Full <strong>end-to-end DevOps</strong> ownership across web and mobile platforms</li>
+              <li>Designed scalable infrastructure for <strong>real-time WebSocket and WebRTC</strong> video sessions</li>
+              <li>Built multi-environment <strong>CI/CD pipeline</strong> supporting rapid iteration across three user-facing products</li>
+              <li>Implemented <strong>auto-scaling</strong> to handle variable session load without over-provisioning</li>
+              <li>Set up <strong>observability stack</strong> — 100% operational flow maintained post-launch</li>
+            </ul>
+            <div class="project-tags">
+              <span>CI/CD</span><span>WebRTC</span><span>Auto-scaling</span><span>Docker</span><span>Observability</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SOV Portal -->
+        <div class="project-card accordion-card">
+          <div class="project-card-header accordion-trigger">
+            <div>
+              <div class="project-title">SOV Portal</div>
+              <div class="project-url">EdTech Study Abroad Platform · Web Application</div>
+            </div>
+            <div class="tc-right"><span class="project-badge">Freelance</span><span class="acc-chevron">›</span></div>
+          </div>
+          <div class="card-body">
+            <p class="project-desc">Comprehensive study abroad platform connecting students, agents, and 5,000+ universities across 35+ countries. Achieved <strong>400% operational efficiency improvement</strong> and <strong>3x revenue growth</strong> within 6 months of launch.</p>
+            <ul class="project-points">
+              <li>Provisioned and managed <strong>cloud infrastructure</strong> for a high-throughput multi-role web platform</li>
+              <li>Built <strong>CI/CD pipeline</strong> enabling rapid feature delivery and zero-downtime deployments</li>
+              <li>Implemented <strong>secure data handling</strong> and role-based access control at infrastructure level</li>
+              <li>Reduced manual processing time by <strong>70%</strong> through automated workflow infrastructure</li>
+            </ul>
+            <div class="project-tags">
+              <span>CI/CD</span><span>Cloud Infra</span><span>Security</span><span>Terraform</span><span>Docker</span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
@@ -493,7 +779,7 @@
       </div>
       <div class="contact-grid">
         <div class="contact-text">
-          <p>I'm available for freelance DevOps work on <span class="t-green">weekends and off-hours</span>. Whether you need a one-time infrastructure setup or ongoing DevOps support — let's talk.</p>
+          <p>Looking for a reliable DevOps engineer to handle your infrastructure, pipelines, or cloud setup? Whether it's a <span class="t-green">one-time project</span> or <span class="t-green">ongoing support</span> — I deliver production-grade work on your timeline. Let's talk.</p>
           <div class="contact-links">
             <a href="https://github.com/sghosal-devops" target="_blank" rel="noopener" class="contact-link">
               <span class="cl-icon">⚡</span>
@@ -509,11 +795,11 @@
                 <div class="cl-val">souvik-ghosal</div>
               </div>
             </a>
-            <a href="https://mail.google.com/mail/?view=cm&to=souvikghosaldevop@gmail.com" target="_blank" rel="noopener" class="contact-link">
+            <a href="https://mail.google.com/mail/?view=cm&to=souvikghosaldevops@gmail.com" target="_blank" rel="noopener" class="contact-link">
               <span class="cl-icon">📧</span>
               <div>
                 <div class="cl-label">Email</div>
-                <div class="cl-val">souvikghosal1997@gmail.com</div>
+                <div class="cl-val">souvikghosaldevops@gmail.com</div>
               </div>
             </a>
           </div>
