@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zero-Downtime Kubernetes Deployments | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Kubernetes</span>
+        <span class="blog-tag">Advanced</span>
+        <span class="blog-tag">Production</span>
+      </div>
+      <h1>Zero-Downtime Kubernetes Deployments: Blue-Green, Canary & Rolling Strategies Compared</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>June 2026</span><span class="dot-sep">·</span>
+        <span>12 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+      <p>Deploying new versions of an application is one of the highest-risk moments in a software lifecycle. Done wrong, it means downtime, failed requests, and 3am pages. Done right, your users never notice. Kubernetes gives you the primitives — but choosing the right deployment strategy, configuring it correctly, and understanding its failure modes is where most teams stumble.</p>
+      <p>In this post I'll break down three production-grade strategies — <strong>Rolling Update</strong>, <strong>Blue-Green</strong>, and <strong>Canary</strong> — with real YAML, actual tradeoffs, and the scenarios where each one wins.</p>
+
+      <h2>1. Rolling Update — The Default You're Already Using</h2>
+      <p>Rolling updates are Kubernetes' out-of-the-box deployment strategy. Pods are replaced incrementally: a few old pods are terminated, new pods come up, and traffic shifts gradually. Simple, but dangerously misunderstood.</p>
+      <p>The two critical parameters are <strong>maxUnavailable</strong> and <strong>maxSurge</strong>. Most teams leave them at defaults (25%/25%) without thinking about what that means in production.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — deployment.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">apps/v1</span>
+<span class="cn">kind</span>: <span class="cs">Deployment</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-server</span>
+<span class="cn">spec</span>:
+  <span class="cn">replicas</span>: <span class="cv">10</span>
+  <span class="cn">strategy</span>:
+    <span class="cn">type</span>: <span class="cs">RollingUpdate</span>
+    <span class="cn">rollingUpdate</span>:
+      <span class="cn">maxUnavailable</span>: <span class="cv">0</span>    <span class="cc"># never kill a pod before new one is Ready</span>
+      <span class="cn">maxSurge</span>: <span class="cv">2</span>           <span class="cc"># allow 2 extra pods above replica count</span>
+  <span class="cn">template</span>:
+    <span class="cn">spec</span>:
+      <span class="cn">containers</span>:
+      - <span class="cn">name</span>: <span class="cs">api</span>
+        <span class="cn">image</span>: <span class="cs">myapp:v2.1.0</span>
+        <span class="cn">readinessProbe</span>:
+          <span class="cn">httpGet</span>:
+            <span class="cn">path</span>: <span class="cs">/healthz</span>
+            <span class="cn">port</span>: <span class="cv">8080</span>
+          <span class="cn">initialDelaySeconds</span>: <span class="cv">10</span>
+          <span class="cn">periodSeconds</span>: <span class="cv">5</span>
+          <span class="cn">failureThreshold</span>: <span class="cv">3</span></pre>
+      </div>
+
+      <div class="callout tip"><strong>Key insight:</strong> Setting <code>maxUnavailable: 0</code> means Kubernetes will never send traffic to a pod that hasn't passed its readiness probe. This is the single most important setting for zero-downtime rolling deployments. Without it, you'll drop requests.</div>
+
+      <p>Rolling updates also require you to handle <strong>graceful termination</strong> properly. When a pod receives SIGTERM, it should stop accepting new connections and finish in-flight requests before exiting. Set <code>terminationGracePeriodSeconds</code> to something realistic — 30 seconds is often not enough for long-running requests.</p>
+
+      <h3>When Rolling Update Fails You</h3>
+      <p>Rolling updates are stateless-friendly but break down when your new version is <strong>not backward compatible</strong> with the old one. If v2 changes a database schema that v1 can't read, you'll have both versions running simultaneously during the rollout and chaos ensues. This is where Blue-Green shines.</p>
+
+      <h2>2. Blue-Green — Full Version Isolation</h2>
+      <p>Blue-Green runs two full, identical environments simultaneously. "Blue" is live production. "Green" is the new version, fully deployed and tested. Traffic is switched over atomically — one Service selector update — and rollback is instant (switch the selector back).</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — blue-green setup</span>
+        <pre><span class="cc"># Blue deployment (current live)</span>
+<span class="cn">apiVersion</span>: <span class="cs">apps/v1</span>
+<span class="cn">kind</span>: <span class="cs">Deployment</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-blue</span>
+<span class="cn">spec</span>:
+  <span class="cn">replicas</span>: <span class="cv">10</span>
+  <span class="cn">selector</span>:
+    <span class="cn">matchLabels</span>:
+      <span class="cn">app</span>: <span class="cs">api</span>
+      <span class="cn">version</span>: <span class="cs">blue</span>
+  <span class="cn">template</span>:
+    <span class="cn">metadata</span>:
+      <span class="cn">labels</span>:
+        <span class="cn">app</span>: <span class="cs">api</span>
+        <span class="cn">version</span>: <span class="cs">blue</span>
+---
+<span class="cc"># Service — switch this selector to flip traffic</span>
+<span class="cn">apiVersion</span>: <span class="cs">v1</span>
+<span class="cn">kind</span>: <span class="cs">Service</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-service</span>
+<span class="cn">spec</span>:
+  <span class="cn">selector</span>:
+    <span class="cn">app</span>: <span class="cs">api</span>
+    <span class="cn">version</span>: <span class="cs">blue</span>  <span class="cc"># change to "green" to flip</span></pre>
+      </div>
+
+      <p>The flip is done with a single <code>kubectl patch</code> or via GitOps — and because the Service selector update is atomic, there's no window where requests hit both versions simultaneously.</p>
+
+      <div class="callout warn"><strong>Cost warning:</strong> Blue-Green doubles your resource footprint during deployment. For large clusters this can mean significant cost spikes. Use it for stateful or schema-sensitive services; rolling update is fine for most stateless workloads.</div>
+
+      <h2>3. Canary — Progressive Delivery with Real-World Validation</h2>
+      <p>Canary deployments send a small percentage of real production traffic to the new version, observe metrics, and progressively increase the percentage if things look healthy. This is the gold standard for high-risk deployments.</p>
+      <p>With Kubernetes alone you're limited to pod-count-based traffic splitting (5 canary pods out of 100 = ~5% traffic). For proper percentage-based splitting you need an ingress controller or service mesh. Here's a clean setup with NGINX Ingress:</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — canary ingress (nginx)</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">networking.k8s.io/v1</span>
+<span class="cn">kind</span>: <span class="cs">Ingress</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-canary</span>
+  <span class="cn">annotations</span>:
+    <span class="cn">nginx.ingress.kubernetes.io/canary</span>: <span class="cs">"true"</span>
+    <span class="cn">nginx.ingress.kubernetes.io/canary-weight</span>: <span class="cs">"10"</span>  <span class="cc"># 10% to canary</span>
+<span class="cn">spec</span>:
+  <span class="cn">rules</span>:
+  - <span class="cn">host</span>: <span class="cs">api.example.com</span>
+    <span class="cn">http</span>:
+      <span class="cn">paths</span>:
+      - <span class="cn">path</span>: <span class="cs">/</span>
+        <span class="cn">pathType</span>: <span class="cs">Prefix</span>
+        <span class="cn">backend</span>:
+          <span class="cn">service</span>:
+            <span class="cn">name</span>: <span class="cs">api-v2</span>
+            <span class="cn">port</span>:
+              <span class="cn">number</span>: <span class="cv">80</span></pre>
+      </div>
+
+      <h3>Automating Canary Progression with Argo Rollouts</h3>
+      <p>Manual canary promotion is error-prone. Argo Rollouts automates the entire progression pipeline — promoting based on Prometheus metrics, pausing for analysis, and auto-rolling back on error rate spikes.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — argo rollouts canary</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">argoproj.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">Rollout</span>
+<span class="cn">spec</span>:
+  <span class="cn">strategy</span>:
+    <span class="cn">canary</span>:
+      <span class="cn">steps</span>:
+      - <span class="cn">setWeight</span>: <span class="cv">5</span>
+      - <span class="cn">pause</span>: {<span class="cn">duration</span>: <span class="cs">5m</span>}
+      - <span class="cn">setWeight</span>: <span class="cv">20</span>
+      - <span class="cn">analysis</span>:
+          <span class="cn">templates</span>:
+          - <span class="cn">templateName</span>: <span class="cs">error-rate</span>   <span class="cc"># auto-rollback if >1% errors</span>
+      - <span class="cn">setWeight</span>: <span class="cv">50</span>
+      - <span class="cn">pause</span>: {<span class="cn">duration</span>: <span class="cs">10m</span>}
+      - <span class="cn">setWeight</span>: <span class="cv">100</span></pre>
+      </div>
+
+      <h2>Strategy Decision Matrix</h2>
+      <ul>
+        <li><strong>Rolling Update</strong> — stateless apps, backward-compatible changes, cost-sensitive environments. Best default choice.</li>
+        <li><strong>Blue-Green</strong> — schema migrations, stateful services, compliance environments where you need instant rollback. Accept the cost.</li>
+        <li><strong>Canary</strong> — high-traffic services, risky features, A/B testing needs. Best for catching real-world regressions before full rollout.</li>
+      </ul>
+
+      <div class="callout info"><strong>Production tip:</strong> Whatever strategy you choose, always pair it with a properly configured readiness probe, a preStop hook for graceful shutdown, and Prometheus alerting on error rate and latency during the rollout window. The strategy without observability is guesswork.</div>
+
+      <h2>Conclusion</h2>
+      <p>There's no universally correct deployment strategy — context determines the right choice. What I've found in production: most teams should use Rolling Update with <code>maxUnavailable: 0</code> for 80% of deployments, Blue-Green for anything touching the database layer, and Canary via Argo Rollouts for flagship user-facing services. Build the muscle to execute all three, and your team stops fearing release day.</p>
+
+      <div class="post-cta">
+        <h3>Need help setting this up for your team?</h3>
+        <p>I set up production-grade Kubernetes deployment pipelines for startups and scale-ups as a freelance DevOps engineer.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links">
+        <a href="../blog.html">← all posts</a>
+        <a href="../index.html#contact">contact</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

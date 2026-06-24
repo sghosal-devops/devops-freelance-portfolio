@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Platform Engineering vs DevOps: Building an Internal Developer Platform | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">&larr; back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Platform Engineering</span>
+        <span class="blog-tag">IDP</span>
+        <span class="blog-tag">Backstage</span>
+      </div>
+      <h1>Platform Engineering vs DevOps: Building an Internal Developer Platform</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">&middot;</span>
+        <span>January 2026</span><span class="dot-sep">&middot;</span>
+        <span>12 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>"DevOps" promised to eliminate the wall between development and operations. What it actually produced, in many organizations, was a wall between developers and the growing complexity of cloud infrastructure — wrapped in the expectation that every developer should understand Kubernetes, Terraform, IAM policies, service meshes, and observability pipelines on top of building product features. The cognitive load is real, and it kills velocity.</p>
+
+      <p>Platform engineering is the answer to that problem. Not a replacement for DevOps culture — DevOps is still the right mental model for breaking down silos and owning what you build in production — but a product discipline applied to internal tooling. The platform team builds and operates the Internal Developer Platform (IDP) so that product engineers can deploy, observe, and manage their services without becoming infrastructure specialists.</p>
+
+      <h2>1. The Cognitive Load Problem</h2>
+
+      <p>Team Topologies (Skelton &amp; Pais) describes three types of cognitive load: intrinsic (understanding the problem domain), extraneous (accidental complexity from tools), and germane (building capability). Platform engineering's job is to minimize extraneous cognitive load on stream-aligned teams so they can focus on intrinsic and germane load — i.e., building good software.</p>
+
+      <p>In practice, this looks like: a developer should not need to understand Crossplane, Kubernetes RBAC, Terraform state backends, or Helm chart templating to deploy a new microservice to production. They should fill out a form (or run a CLI command), get back a working deployment with CI/CD, monitoring, and a service catalog entry, and ship features. The platform team owns the complexity; developers consume a product.</p>
+
+      <p>The key shift from traditional DevOps thinking: the platform team treats developers as their customers. That means user research (how long does it take to deploy a new service today?), product roadmaps, SLAs for the platform itself, and user satisfaction metrics. Not just "we wrote the Helm chart, use it."</p>
+
+      <h2>2. The Golden Path Concept</h2>
+
+      <p>A golden path (or paved road) is an opinionated, well-supported path through your infrastructure for the common case. It bundles all the best practices: security scanning in CI, automatic mTLS via service mesh, centralized logging and metrics, RBAC by convention, automated certificate management, and a standard Dockerfile that passes your security policy.</p>
+
+      <p>Developers who follow the golden path get all of these for free. Developers who need to deviate — because they have unusual requirements, legacy systems, or specialized technology needs — can, but they accept ownership of the complexity they're introducing. The platform team doesn't block deviation; it makes the golden path so good that most teams never need to deviate.</p>
+
+      <div class="callout tip"><strong>The golden path must actually be golden:</strong> If the "standard" Helm chart has 200 values, requires reading three runbooks to get right, and takes 4 hours to debug the first time, it's not a golden path — it's a golden obstacle course. Invest in making the happy path genuinely fast and pleasant. Measure onboarding time for new services. If it takes more than 30 minutes for a standard service, your platform has a UX problem.</div>
+
+      <h2>3. Backstage: The Developer Portal Layer</h2>
+
+      <p>Backstage (open-sourced by Spotify, now a CNCF project) provides the user-facing layer of an IDP. Its core components are:</p>
+
+      <ul>
+        <li><strong>Service Catalog:</strong> A searchable inventory of all services, libraries, APIs, and data pipelines in your organization. Each entry is backed by a <code>catalog-info.yaml</code> file in the service's Git repo.</li>
+        <li><strong>TechDocs:</strong> Docs-as-code — Markdown docs in the service's repo, rendered as a documentation portal in Backstage. No separate Confluence page needed.</li>
+        <li><strong>Scaffolder Templates:</strong> Wizard-driven project creation that can scaffold a repo, create a PR, provision cloud resources, and register the new service in the catalog — in one workflow.</li>
+        <li><strong>Plugins:</strong> First-class integrations with Kubernetes (showing pod health in the catalog), PagerDuty (showing active incidents per service), SonarQube, Lighthouse, and 100+ community plugins.</li>
+      </ul>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — catalog-info.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">backstage.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">Component</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">payment-api</span>
+  <span class="cn">description</span>: <span class="cs">"Handles payment processing via Stripe and Adyen"</span>
+  <span class="cn">annotations</span>:
+    <span class="cn">backstage.io/techdocs-ref</span>: <span class="cs">dir:.</span>
+    <span class="cc"># Kubernetes plugin: shows pods, deployments, health in Backstage</span>
+    <span class="cn">backstage.io/kubernetes-id</span>: <span class="cs">payment-api</span>
+    <span class="cn">backstage.io/kubernetes-namespace</span>: <span class="cs">production</span>
+    <span class="cc"># PagerDuty plugin: link to on-call schedule</span>
+    <span class="cn">pagerduty.com/service-id</span>: <span class="cs">P1ABC23</span>
+    <span class="cc"># SonarQube code quality gate</span>
+    <span class="cn">sonarqube.org/project-key</span>: <span class="cs">payment-api</span>
+    <span class="cc"># ArgoCD plugin: link to deployment history</span>
+    <span class="cn">argocd/app-name</span>: <span class="cs">payment-api-prod</span>
+  <span class="cn">tags</span>:
+  - <span class="cs">payments</span>
+  - <span class="cs">critical</span>
+  - <span class="cs">tier-1</span>
+  <span class="cn">links</span>:
+  - <span class="cn">url</span>: <span class="cs">"https://grafana.internal/d/payment-api"</span>
+    <span class="cn">title</span>: <span class="cs">Grafana Dashboard</span>
+  - <span class="cn">url</span>: <span class="cs">"https://logs.internal/app/payment-api"</span>
+    <span class="cn">title</span>: <span class="cs">Kibana Logs</span>
+<span class="cn">spec</span>:
+  <span class="cn">type</span>: <span class="cs">service</span>
+  <span class="cn">lifecycle</span>: <span class="cs">production</span>
+  <span class="cn">owner</span>: <span class="cs">team-payments</span>
+  <span class="cn">system</span>: <span class="cs">checkout-platform</span>
+  <span class="cn">dependsOn</span>:
+  - <span class="cs">component:postgres-payment</span>
+  - <span class="cs">component:stripe-connector</span>
+  <span class="cn">providesApis</span>:
+  - <span class="cs">payment-api-v2</span></pre>
+      </div>
+
+      <h2>4. Crossplane: Self-Service Infrastructure</h2>
+
+      <p>Backstage handles the portal and catalog layer. For self-service infrastructure provisioning, Crossplane is the tool that connects Kubernetes GitOps workflows to cloud provider APIs. Developers create a custom resource (e.g., <code>PostgresDatabase</code>); Crossplane's composition engine translates it into the appropriate provider-specific resources (RDS instance, subnet group, parameter group, IAM role, Secrets Manager entry) and reconciles them continuously.</p>
+
+      <p>The two key Crossplane primitives are <strong>CompositeResourceDefinitions (XRDs)</strong> — the API the developer sees — and <strong>Compositions</strong> — the template that maps the XRD to real cloud resources.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — crossplane-composition.yaml</span>
+        <pre><span class="cc"># XRD: defines the self-service API your developers use</span>
+<span class="cn">apiVersion</span>: <span class="cs">apiextensions.crossplane.io/v1</span>
+<span class="cn">kind</span>: <span class="cs">CompositeResourceDefinition</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">xpostgresdatabases.platform.example.com</span>
+<span class="cn">spec</span>:
+  <span class="cn">group</span>: <span class="cs">platform.example.com</span>
+  <span class="cn">names</span>:
+    <span class="cn">kind</span>: <span class="cs">XPostgresDatabase</span>
+    <span class="cn">plural</span>: <span class="cs">xpostgresdatabases</span>
+  <span class="cn">claimNames</span>:
+    <span class="cn">kind</span>: <span class="cs">PostgresDatabase</span>       <span class="cc"># namespace-scoped claim — developers use this</span>
+    <span class="cn">plural</span>: <span class="cs">postgresdatabases</span>
+  <span class="cn">versions</span>:
+  - <span class="cn">name</span>: <span class="cs">v1alpha1</span>
+    <span class="cn">served</span>: <span class="cs">true</span>
+    <span class="cn">referenceable</span>: <span class="cs">true</span>
+    <span class="cn">schema</span>:
+      <span class="cn">openAPIV3Schema</span>:
+        <span class="cn">type</span>: <span class="cs">object</span>
+        <span class="cn">properties</span>:
+          <span class="cn">spec</span>:
+            <span class="cn">type</span>: <span class="cs">object</span>
+            <span class="cn">properties</span>:
+              <span class="cn">parameters</span>:
+                <span class="cn">type</span>: <span class="cs">object</span>
+                <span class="cn">properties</span>:
+                  <span class="cn">size</span>:
+                    <span class="cn">type</span>: <span class="cs">string</span>
+                    <span class="cn">enum</span>: [<span class="cs">small</span>, <span class="cs">medium</span>, <span class="cs">large</span>]  <span class="cc"># t3.micro, t3.small, t3.medium</span>
+                    <span class="cn">description</span>: <span class="cs">"Instance size tier"</span>
+                  <span class="cn">version</span>:
+                    <span class="cn">type</span>: <span class="cs">string</span>
+                    <span class="cn">enum</span>: [<span class="cs">"14"</span>, <span class="cs">"15"</span>, <span class="cs">"16"</span>]
+                  <span class="cn">multiAZ</span>:
+                    <span class="cn">type</span>: <span class="cs">boolean</span>
+                    <span class="cn">default</span>: <span class="cs">false</span>
+                <span class="cn">required</span>: [<span class="cs">size</span>, <span class="cs">version</span>]
+
+<span class="cc">---</span>
+<span class="cc"># Composition: platform team's implementation — developers never see this</span>
+<span class="cn">apiVersion</span>: <span class="cs">apiextensions.crossplane.io/v1</span>
+<span class="cn">kind</span>: <span class="cs">Composition</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">postgres-aws-rds</span>
+<span class="cn">spec</span>:
+  <span class="cn">compositeTypeRef</span>:
+    <span class="cn">apiVersion</span>: <span class="cs">platform.example.com/v1alpha1</span>
+    <span class="cn">kind</span>: <span class="cs">XPostgresDatabase</span>
+  <span class="cn">resources</span>:
+  - <span class="cn">name</span>: <span class="cs">rds-instance</span>
+    <span class="cn">base</span>:
+      <span class="cn">apiVersion</span>: <span class="cs">rds.aws.upbound.io/v1beta1</span>
+      <span class="cn">kind</span>: <span class="cs">Instance</span>
+      <span class="cn">spec</span>:
+        <span class="cn">forProvider</span>:
+          <span class="cn">region</span>: <span class="cs">us-east-1</span>
+          <span class="cn">engine</span>: <span class="cs">postgres</span>
+          <span class="cn">storageEncrypted</span>: <span class="cs">true</span>             <span class="cc"># security policy enforced by platform</span>
+          <span class="cn">backupRetentionPeriod</span>: <span class="cv">7</span>
+          <span class="cn">deletionProtection</span>: <span class="cs">true</span>
+          <span class="cn">dbSubnetGroupNameSelector</span>:
+            <span class="cn">matchLabels</span>:
+              <span class="cn">env</span>: <span class="cs">production</span>
+    <span class="cn">patches</span>:
+    <span class="cc">  # Map developer's "small/medium/large" to actual instance types</span>
+    - <span class="cn">type</span>: <span class="cs">CombineFromComposite</span>
+      <span class="cn">combine</span>:
+        <span class="cn">variables</span>:
+        - <span class="cn">fromFieldPath</span>: <span class="cs">spec.parameters.size</span>
+        <span class="cn">strategy</span>: <span class="cs">string</span>
+        <span class="cn">string</span>:
+          <span class="cn">fmt</span>: <span class="cs">"%s"</span>
+      <span class="cn">toFieldPath</span>: <span class="cs">spec.forProvider.instanceClass</span>
+      <span class="cn">transforms</span>:
+      - <span class="cn">type</span>: <span class="cs">map</span>
+        <span class="cn">map</span>:
+          <span class="cn">small</span>: <span class="cs">db.t3.micro</span>
+          <span class="cn">medium</span>: <span class="cs">db.t3.small</span>
+          <span class="cn">large</span>: <span class="cs">db.t3.medium</span>
+    - <span class="cn">fromFieldPath</span>: <span class="cs">spec.parameters.version</span>
+      <span class="cn">toFieldPath</span>: <span class="cs">spec.forProvider.engineVersion</span>
+    - <span class="cn">fromFieldPath</span>: <span class="cs">spec.parameters.multiAZ</span>
+      <span class="cn">toFieldPath</span>: <span class="cs">spec.forProvider.multiAz</span></pre>
+      </div>
+
+      <p>With this in place, a developer provisions a database by applying a simple YAML claim to their namespace. The platform team has enforced storage encryption, backup retention, subnet placement, and deletion protection — invisible to the developer, non-negotiable by policy.</p>
+
+      <h2>5. Backstage Scaffolder: The "New Service" Golden Path</h2>
+
+      <p>A Backstage Scaffolder template automates the entire "create a new service" workflow. When a developer fills out the form, Backstage can: clone a template repo, replace placeholders, create a new GitHub repo, push the scaffolded code, create a PR, provision a staging namespace via Crossplane, register the service in the Backstage catalog, and create the Grafana dashboard — all from a single workflow defined in YAML and executed by the Scaffolder backend.</p>
+
+      <p>This is the single highest-leverage investment a platform team can make. The first service a new team creates sets the tone for everything that follows. If it takes 3 minutes using Backstage Scaffolder vs 3 days of back-and-forth with the platform team, you've earned the trust of every developer in the organization.</p>
+
+      <h2>6. Tekton for Internal Pipelines</h2>
+
+      <p>For CI/CD pipelines that developers run but the platform team owns, Tekton is the Kubernetes-native answer. Unlike GitHub Actions (which run on GitHub's infrastructure) or Jenkins (which requires managing its own cluster), Tekton pipelines are Kubernetes resources — they run in your cluster, access your secrets natively, and are defined in YAML that can be versioned and policy-checked like any other resource.</p>
+
+      <p>The platform team defines reusable <code>Tasks</code> (e.g., "build Docker image with Kaniko", "run Trivy security scan", "deploy to staging via ArgoCD sync") and composes them into <code>Pipelines</code>. Teams consume these pre-built pipelines via <code>PipelineRun</code> objects, parameterized with their service's image name and repo. They get a standardized, compliant pipeline without writing a single pipeline definition.</p>
+
+      <h2>7. Measuring IDP Success with DORA Metrics</h2>
+
+      <p>The point of a platform is to make developers faster and more reliable. DORA metrics (from the DevOps Research and Assessment program) are the industry-standard way to measure this:</p>
+
+      <ul>
+        <li><strong>Deployment Frequency:</strong> How often does a team deploy to production? Elite performers deploy on-demand (multiple times per day). If your IDP reduces deployment friction, this goes up.</li>
+        <li><strong>Lead Time for Changes:</strong> Time from code commit to production. A good IDP + golden path should target elite performance: less than one hour for standard changes.</li>
+        <li><strong>Change Failure Rate:</strong> Percentage of deployments causing an incident. Your golden path's built-in testing and canary deployment capabilities directly improve this.</li>
+        <li><strong>Mean Time to Restore (MTTR):</strong> How quickly can teams recover from incidents? Backstage's integration with PagerDuty and the service catalog makes it faster to identify the owning team and relevant runbooks during incidents.</li>
+      </ul>
+
+      <p>Baseline these metrics before launching the IDP. Measure them quarterly. If Deployment Frequency isn't going up and Lead Time isn't going down 6 months after launch, your IDP has a product problem — talk to developers and find out what's blocking them.</p>
+
+      <div class="code-block">
+        <span class="code-lang">promql — dora-lead-time-query.txt</span>
+        <pre><span class="cc"># Lead Time: time from first commit in PR to production deployment</span>
+<span class="cc"># Requires your CI/CD system to emit events with commit SHA and deploy timestamp</span>
+
+<span class="cc"># If using Tekton + custom metrics:</span>
+<span class="cs">histogram_quantile(0.50,</span>
+  <span class="cs">sum(rate(deployment_lead_time_seconds_bucket{env="production"}[7d])) by (le, team)</span>
+<span class="cs">)</span>
+<span class="cc"># P50 lead time per team, 7-day window</span>
+
+<span class="cc"># Deployment frequency: deploys per day per team</span>
+<span class="cs">sum(increase(deployments_total{env="production"}[24h])) by (team)</span>
+
+<span class="cc"># Change failure rate: deployments that triggered a rollback or incident</span>
+<span class="cs">sum(increase(deployment_failures_total{env="production"}[7d])) by (team)</span>
+<span class="cs">/</span>
+<span class="cs">sum(increase(deployments_total{env="production"}[7d])) by (team)</span></pre>
+      </div>
+
+      <h2>8. Team Topologies: Platform Team as a Product Team</h2>
+
+      <p>Team Topologies prescribes that the platform team should operate as a product team with a long-lived mandate, not a project team that hands off and disbands. This means a dedicated roadmap, quarterly OKRs aligned to developer productivity, user research interviews with stream-aligned teams, and a proper backlog prioritized by developer pain.</p>
+
+      <p>The platform team's customers are internal. That's a different muscle than building external products, but the same discipline applies: talk to users, measure outcomes, prioritize ruthlessly, and don't build things no one asked for.</p>
+
+      <h2>9. Common IDP Pitfalls</h2>
+
+      <p><strong>Building the IDP in secret and launching with a big bang:</strong> Platform teams sometimes spend 12 months building the perfect IDP before showing it to developers. By then, teams have built workarounds, accumulated tribal knowledge, and have zero incentive to switch. Ship an MVP to 2-3 pilot teams within 8 weeks, iterate from there.</p>
+
+      <p><strong>Treating the IDP as a technology project, not a product:</strong> The platform is not done when the Backstage instance is running. It's done when developers say "this makes my job better." Until then, you're iterating.</p>
+
+      <p><strong>Over-engineering the abstractions:</strong> Crossplane compositions that try to abstract every possible configuration option end up being as complex as the underlying Terraform they replaced. Start with narrow, opinionated abstractions that cover 80% of use cases. Add flexibility incrementally based on actual developer requests, not anticipated ones.</p>
+
+      <div class="callout warn"><strong>Avoid the "second system effect" trap:</strong> The first IDP tool a platform team builds tends to be narrowly useful. The second one is overengineered to be a universal abstraction layer. Fight the urge to build a general-purpose infrastructure API. Build specific, well-scoped primitives: a Postgres claim, a Redis claim, a standard Deployment template. Generality is the enemy of usability.</div>
+
+      <div class="callout info"><strong>P75 time-to-production as your North Star:</strong> Track the 75th percentile (not the mean) of time-to-first-production-deployment for a new service. The mean is skewed by the fastest teams who know the platform well. P75 captures the experience of teams encountering your IDP for the first time. If your P75 is measured in days, you have usability problems. Target sub-4-hours for a new standard service.</div>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">&copy; 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">&larr; all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

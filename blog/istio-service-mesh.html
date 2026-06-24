@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Istio Deep Dive: mTLS, Traffic Management &amp; Observability at Scale | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">&larr; back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Istio</span>
+        <span class="blog-tag">Service Mesh</span>
+        <span class="blog-tag">Kubernetes</span>
+      </div>
+      <h1>Istio Deep Dive: mTLS, Traffic Management &amp; Observability at Scale</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">&middot;</span>
+        <span>February 2026</span><span class="dot-sep">&middot;</span>
+        <span>15 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>Istio is the most powerful and most misunderstood infrastructure component I've worked with. Teams adopt it for mTLS, accidentally leave it in permissive mode for 18 months, wonder why their p99 latency jumped 15ms, and blame "the service mesh." This post is the guide I give to teams before they install Istio: what it actually does, how its control plane works, the production pitfalls, and how to use VirtualService and DestinationRule correctly the first time.</p>
+
+      <p>I'm covering Istio 1.22+ with the ambient mesh option, but the sidecar model is still the majority of production deployments and most of this content applies to both.</p>
+
+      <h2>1. Control Plane Architecture: What istiod Actually Does</h2>
+
+      <p>Istio's control plane was consolidated into a single binary, <code>istiod</code>, in Istio 1.5. Before that it was a nightmare of separate Pilot, Citadel, Galley, and Mixer deployments. istiod does four things:</p>
+
+      <ul>
+        <li><strong>Service discovery (Pilot):</strong> Watches Kubernetes API for Services, Endpoints, and Istio CRDs (VirtualService, DestinationRule, etc.), translates them into Envoy xDS (Listener Discovery Service, Route Discovery Service, Cluster Discovery Service, Endpoint Discovery Service) configuration, and pushes it to Envoy sidecars</li>
+        <li><strong>Certificate management (Citadel):</strong> Acts as an in-cluster CA, issuing SPIFFE X.509 certificates to every sidecar. These certs are the basis of mTLS. Default cert lifetime: 24 hours, rotated automatically</li>
+        <li><strong>Configuration validation (Galley):</strong> Validates Istio CRD configurations before they're accepted by the API server. Prevents you from applying a malformed VirtualService that would silently drop traffic</li>
+        <li><strong>Sidecar injection:</strong> A mutating webhook that intercepts Pod creation and injects the Envoy sidecar container + init container (which sets up iptables rules to intercept all TCP traffic)</li>
+      </ul>
+
+      <p>The Envoy sidecar is the data plane. It intercepts all inbound and outbound traffic from the pod via iptables <code>REDIRECT</code> rules set up by the <code>istio-init</code> init container. Traffic never leaves the pod's network namespace as plaintext between Envoy sidecars — it's encrypted via mTLS automatically.</p>
+
+      <h2>2. mTLS: PeerAuthentication and DestinationRule</h2>
+
+      <p>mTLS in Istio requires two resources working in concert. <code>PeerAuthentication</code> tells the Envoy sidecar what to accept inbound. <code>DestinationRule</code> tells the sidecar how to connect outbound. Getting both right is mandatory — having only one often leads to a broken or insecure setup.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — mtls-config.yaml</span>
+        <pre><span class="cc"># Step 1: Enable STRICT mTLS mesh-wide</span>
+<span class="cc"># This means: reject any plaintext traffic cluster-wide</span>
+<span class="cn">apiVersion</span>: <span class="cs">security.istio.io/v1beta1</span>
+<span class="cn">kind</span>: <span class="cs">PeerAuthentication</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">default</span>
+  <span class="cn">namespace</span>: <span class="cs">istio-system</span>   <span class="cc"># mesh-wide when in istio-system</span>
+<span class="cn">spec</span>:
+  <span class="cn">mtls</span>:
+    <span class="cn">mode</span>: <span class="cs">STRICT</span>
+
+<span class="cc">---</span>
+<span class="cc"># Namespace-level override: PERMISSIVE for legacy apps not yet migrated</span>
+<span class="cn">apiVersion</span>: <span class="cs">security.istio.io/v1beta1</span>
+<span class="cn">kind</span>: <span class="cs">PeerAuthentication</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">legacy-permissive</span>
+  <span class="cn">namespace</span>: <span class="cs">legacy</span>
+<span class="cn">spec</span>:
+  <span class="cn">mtls</span>:
+    <span class="cn">mode</span>: <span class="cs">PERMISSIVE</span>   <span class="cc"># accepts both mTLS and plaintext during migration</span>
+
+<span class="cc">---</span>
+<span class="cc"># DestinationRule: tell the outbound sidecar to use mTLS when calling payment-api</span>
+<span class="cn">apiVersion</span>: <span class="cs">networking.istio.io/v1alpha3</span>
+<span class="cn">kind</span>: <span class="cs">DestinationRule</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">payment-api-mtls</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">host</span>: <span class="cs">payment-api.production.svc.cluster.local</span>
+  <span class="cn">trafficPolicy</span>:
+    <span class="cn">tls</span>:
+      <span class="cn">mode</span>: <span class="cs">ISTIO_MUTUAL</span>   <span class="cc"># use Istio-managed certs (not custom certs)</span>
+    <span class="cn">connectionPool</span>:
+      <span class="cn">tcp</span>:
+        <span class="cn">maxConnections</span>: <span class="cv">100</span>
+      <span class="cn">http</span>:
+        <span class="cn">http2MaxRequests</span>: <span class="cv">1000</span>
+        <span class="cn">pendingRequests</span>: <span class="cv">50</span>
+        <span class="cn">maxRetries</span>: <span class="cv">3</span>
+    <span class="cn">outlierDetection</span>:
+      <span class="cn">consecutive5xxErrors</span>: <span class="cv">5</span>
+      <span class="cn">interval</span>: <span class="cs">10s</span>
+      <span class="cn">baseEjectionTime</span>: <span class="cs">30s</span>
+      <span class="cn">maxEjectionPercent</span>: <span class="cv">50</span>   <span class="cc"># never eject more than 50% of endpoints</span>
+  <span class="cn">subsets</span>:
+  - <span class="cn">name</span>: <span class="cs">v1</span>
+    <span class="cn">labels</span>:
+      <span class="cn">version</span>: <span class="cs">v1</span>
+  - <span class="cn">name</span>: <span class="cs">v2</span>
+    <span class="cn">labels</span>:
+      <span class="cn">version</span>: <span class="cs">v2</span></pre>
+      </div>
+
+      <div class="callout warn"><strong>The PERMISSIVE trap:</strong> Default Istio installs use PERMISSIVE mode. This means mTLS is optional — services accept both encrypted and plaintext traffic. If you leave it this way, you have no actual encryption guarantee. The correct migration path: deploy Istio in PERMISSIVE, verify all services have sidecars injected, then switch to STRICT mesh-wide. Monitor <code>istio_requests_total{connection_security_policy="mutual_tls"}</code> to verify what percentage of traffic is actually using mTLS before you flip to STRICT.</div>
+
+      <h2>3. VirtualService: Traffic Management Done Right</h2>
+
+      <p>VirtualService is Istio's traffic routing primitive. It overrides Kubernetes Service routing and gives you L7 routing based on headers, URI, weights, source labels, and more. The most common use case is canary deployments — route 10% of traffic to v2 while keeping 90% on v1.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — virtualservice.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">networking.istio.io/v1alpha3</span>
+<span class="cn">kind</span>: <span class="cs">VirtualService</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">payment-api</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">hosts</span>:
+  - <span class="cs">payment-api</span>   <span class="cc"># short name resolves to payment-api.production.svc.cluster.local</span>
+  <span class="cn">http</span>:
+  <span class="cc">  # Route 1: Internal beta testers get v2 (via header)</span>
+  - <span class="cn">match</span>:
+    - <span class="cn">headers</span>:
+        <span class="cn">x-beta-user</span>:
+          <span class="cn">exact</span>: <span class="cs">"true"</span>
+    <span class="cn">route</span>:
+    - <span class="cn">destination</span>:
+        <span class="cn">host</span>: <span class="cs">payment-api</span>
+        <span class="cn">subset</span>: <span class="cs">v2</span>
+      <span class="cn">weight</span>: <span class="cv">100</span>
+
+  <span class="cc">  # Route 2: 10% canary to v2 for everyone else</span>
+  - <span class="cn">route</span>:
+    - <span class="cn">destination</span>:
+        <span class="cn">host</span>: <span class="cs">payment-api</span>
+        <span class="cn">subset</span>: <span class="cs">v1</span>
+      <span class="cn">weight</span>: <span class="cv">90</span>
+    - <span class="cn">destination</span>:
+        <span class="cn">host</span>: <span class="cs">payment-api</span>
+        <span class="cn">subset</span>: <span class="cs">v2</span>
+      <span class="cn">weight</span>: <span class="cv">10</span>
+    <span class="cn">timeout</span>: <span class="cs">10s</span>
+    <span class="cn">retries</span>:
+      <span class="cn">attempts</span>: <span class="cv">3</span>
+      <span class="cn">perTryTimeout</span>: <span class="cs">3s</span>
+      <span class="cn">retryOn</span>: <span class="cs">"5xx,gateway-error,connect-failure,retriable-4xx"</span>
+
+<span class="cc">---</span>
+<span class="cc"># Fault injection for testing resilience of callers</span>
+<span class="cc"># Apply temporarily in staging — never in production</span>
+<span class="cn">apiVersion</span>: <span class="cs">networking.istio.io/v1alpha3</span>
+<span class="cn">kind</span>: <span class="cs">VirtualService</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">payment-api-fault</span>
+  <span class="cn">namespace</span>: <span class="cs">staging</span>
+<span class="cn">spec</span>:
+  <span class="cn">hosts</span>:
+  - <span class="cs">payment-api</span>
+  <span class="cn">http</span>:
+  - <span class="cn">fault</span>:
+      <span class="cn">delay</span>:
+        <span class="cn">percentage</span>:
+          <span class="cn">value</span>: <span class="cv">20.0</span>   <span class="cc"># 20% of requests get a 3-second delay</span>
+        <span class="cn">fixedDelay</span>: <span class="cs">3s</span>
+      <span class="cn">abort</span>:
+        <span class="cn">percentage</span>:
+          <span class="cn">value</span>: <span class="cv">5.0</span>    <span class="cc"># 5% of requests get HTTP 503</span>
+        <span class="cn">httpStatus</span>: <span class="cv">503</span>
+    <span class="cn">route</span>:
+    - <span class="cn">destination</span>:
+        <span class="cn">host</span>: <span class="cs">payment-api</span>
+        <span class="cn">subset</span>: <span class="cs">v1</span></pre>
+      </div>
+
+      <h2>4. Circuit Breaking with Outlier Detection</h2>
+
+      <p>Outlier detection in Istio's DestinationRule is Envoy's circuit breaker. When a backend pod returns 5xx errors consecutively, Envoy ejects it from the load-balancing pool temporarily, preventing cascading failures from a bad pod. The parameters matter — set them too aggressively and a single slow pod during a deployment will get ejected and reduce your capacity. Too loose and you'll hammer a failing pod.</p>
+
+      <p>The <code>outlierDetection</code> block in the DestinationRule example above already shows a production-tuned config. Key thing to monitor: <code>envoy_cluster_outlier_detection_ejections_active</code> gauge per pod. If you see pods being ejected repeatedly, it means you have a reliability problem in that service, not a tuning problem in Istio.</p>
+
+      <h2>5. JWT Authentication with RequestAuthentication</h2>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — jwt-auth.yaml</span>
+        <pre><span class="cc"># RequestAuthentication: tell Istio how to validate JWT tokens</span>
+<span class="cn">apiVersion</span>: <span class="cs">security.istio.io/v1beta1</span>
+<span class="cn">kind</span>: <span class="cs">RequestAuthentication</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">jwt-auth</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">selector</span>:
+    <span class="cn">matchLabels</span>:
+      <span class="cn">app</span>: <span class="cs">api-gateway</span>
+  <span class="cn">jwtRules</span>:
+  - <span class="cn">issuer</span>: <span class="cs">"https://auth.example.com"</span>
+    <span class="cn">jwksUri</span>: <span class="cs">"https://auth.example.com/.well-known/jwks.json"</span>
+    <span class="cn">audiences</span>:
+    - <span class="cs">"api.example.com"</span>
+    <span class="cn">forwardOriginalToken</span>: <span class="cs">true</span>   <span class="cc"># pass JWT to backend for claims extraction</span>
+
+<span class="cc">---</span>
+<span class="cc"># AuthorizationPolicy: enforce that the JWT must be present and valid</span>
+<span class="cc"># Without this, RequestAuthentication only validates IF a token is present</span>
+<span class="cn">apiVersion</span>: <span class="cs">security.istio.io/v1beta1</span>
+<span class="cn">kind</span>: <span class="cs">AuthorizationPolicy</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">require-jwt</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">selector</span>:
+    <span class="cn">matchLabels</span>:
+      <span class="cn">app</span>: <span class="cs">api-gateway</span>
+  <span class="cn">action</span>: <span class="cs">ALLOW</span>
+  <span class="cn">rules</span>:
+  - <span class="cn">from</span>:
+    - <span class="cn">source</span>:
+        <span class="cn">requestPrincipals</span>: [<span class="cs">"https://auth.example.com/*"</span>]  <span class="cc"># issuer/subject</span>
+    <span class="cn">to</span>:
+    - <span class="cn">operation</span>:
+        <span class="cn">methods</span>: [<span class="cs">"GET"</span>, <span class="cs">"POST"</span>]
+        <span class="cn">paths</span>: [<span class="cs">"/api/*"</span>]
+    <span class="cn">when</span>:
+    - <span class="cn">key</span>: <span class="cs">request.auth.claims[role]</span>
+      <span class="cn">values</span>: [<span class="cs">"admin"</span>, <span class="cs">"service"</span>]</pre>
+      </div>
+
+      <div class="callout info"><strong>RequestAuthentication alone is not enforcement:</strong> This trips up almost every team. RequestAuthentication tells Envoy how to validate a JWT if one is present. But if no JWT is included, the request passes through anyway. You must pair it with an AuthorizationPolicy that requires a valid <code>requestPrincipal</code>. Without both, you have validation without enforcement.</div>
+
+      <h2>6. Observability: Envoy Metrics, Jaeger, and Kiali</h2>
+
+      <p>Istio's observability story is excellent once you understand the layers. Envoy emits detailed metrics for every request it proxies: request count, duration, bytes sent/received, response codes, upstream cluster state. These flow into Prometheus via the standard <code>/stats/prometheus</code> endpoint scraped from each sidecar.</p>
+
+      <p>The most useful Envoy metrics in production:</p>
+      <ul>
+        <li><code>istio_requests_total</code> — labeled with source/dest workload, response code, protocol. Use this for error rate dashboards</li>
+        <li><code>istio_request_duration_milliseconds_bucket</code> — histogram for latency percentiles. More accurate than application-level metrics because it measures full transport latency including retries</li>
+        <li><code>istio_tcp_connections_opened_total</code> and <code>_closed_total</code> — for long-lived TCP connection issues (gRPC streams, database proxies)</li>
+        <li><code>envoy_cluster_upstream_cx_active</code> — active connections per upstream cluster. Spike here indicates connection pool pressure</li>
+      </ul>
+
+      <p>For distributed tracing, Istio propagates B3 trace headers automatically between sidecars, but your application must forward them. This is the most common mistake: teams assume Istio does end-to-end tracing automatically. It doesn't. If service A calls service B, and service A's application code doesn't forward the <code>x-b3-traceid</code>, <code>x-b3-spanid</code>, and <code>x-b3-parentspanid</code> headers when calling service B, you'll see disconnected spans in Jaeger/Tempo instead of a unified trace.</p>
+
+      <p>Kiali is the service topology visualization tool purpose-built for Istio. It reads Prometheus metrics and builds real-time service graph views showing traffic flow, error rates, and mTLS status between services. In production, I run it read-only and use it as a quick sanity-check during deployments — you can visually see traffic shifting from v1 to v2 as the canary rolls out.</p>
+
+      <h2>7. Ambient Mesh vs Sidecar Mode (Istio 1.22+)</h2>
+
+      <p>Ambient mesh is Istio's new architecture, stable in 1.22. It eliminates the per-pod Envoy sidecar by introducing two new components: <strong>ztunnel</strong> (a per-node DaemonSet handling L4 mTLS) and <strong>waypoint proxies</strong> (per-namespace or per-service Envoy deployments handling L7 policy for services that need it).</p>
+
+      <p>The promise: same security and observability, dramatically lower resource overhead. Sidecars typically add 50–100m CPU and 128–256Mi memory per pod. At 500 pods, that's 25–50 CPU cores and 64–128GB RAM spent on infrastructure. Ambient mesh moves the L4 processing to a per-node ztunnel (roughly equivalent to one sidecar's overhead per node, not per pod) and only deploys L7 waypoints where you need them.</p>
+
+      <p>Should you use it in production today? If you're on Istio 1.22+ and starting fresh: yes. If you have an existing sidecar mesh with custom per-workload policies: migrate carefully. The sidecar and ambient models are supported simultaneously in the same cluster during migration, but not on the same namespace.</p>
+
+      <h2>8. Production Pitfalls I've Personally Hit</h2>
+
+      <p><strong>Sidecar resource overhead:</strong> Default Istio sidecar resource requests are 100m CPU and 128Mi memory. On a cluster with 200 pods, that's 20 CPU cores and 25.6GB allocated just for sidecars, before a single application container runs. Set these to realistic values (10m CPU request, 40Mi memory request) based on actual profiling — but keep limits high enough for bursts.</p>
+
+      <p><strong>istiod control plane scaling:</strong> istiod has O(N) memory usage with N = number of pods + number of Istio config objects. At 1000+ pods with heavy VirtualService usage, istiod can use 4–8GB RAM. Set up HPA for istiod and monitor <code>pilot_xds_pushes</code> and <code>pilot_xds_push_errors</code> — high error rates here mean sidecars are getting stale config.</p>
+
+      <p><strong>iptables interception and init containers:</strong> The <code>istio-init</code> init container requires NET_ADMIN capability to modify iptables. If your cluster has a PodSecurityPolicy or OPA policy blocking NET_ADMIN, Istio injection will fail silently — the pod starts but has no sidecar. Always check <code>kubectl get pod &lt;name&gt; -o jsonpath='{.spec.containers[*].name}'</code> to verify the <code>istio-proxy</code> container is present.</p>
+
+      <div class="callout warn"><strong>VirtualService host must match exactly:</strong> A VirtualService with <code>hosts: ["payment-api"]</code> in namespace <code>production</code> only matches traffic to <code>payment-api.production.svc.cluster.local</code> from within the <code>production</code> namespace. Traffic from the <code>staging</code> namespace uses the FQDN and will not be matched. Use the FQDN in the hosts field for cross-namespace routing reliability. This accounts for a significant percentage of "why isn't my VirtualService working" issues.</div>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">&copy; 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">&larr; all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

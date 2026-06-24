@@ -452,6 +452,8 @@ a { text-decoration: none; color: inherit; }
   align-items: center;
 }
 .ac-line:last-child { border-bottom: none; }
+.t-dim { color: var(--text-dim); }
+.avail-tag { color: var(--green); font-weight: 600; }
 .ac-line span:first-child { min-width: 90px; flex-shrink: 0; }
 .ac-line span:last-child { color: var(--text-dim); }
 

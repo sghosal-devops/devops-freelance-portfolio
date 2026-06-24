@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Building Self-Healing Infrastructure with Kubernetes Operators | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">&larr; back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Kubernetes</span>
+        <span class="blog-tag">Operators</span>
+        <span class="blog-tag">Go</span>
+      </div>
+      <h1>Building Self-Healing Infrastructure with Kubernetes Operators</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">&middot;</span>
+        <span>February 2026</span><span class="dot-sep">&middot;</span>
+        <span>13 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>A Kubernetes operator is how you teach Kubernetes about your application's operational domain knowledge. Instead of a human following a runbook to scale your database, restart a failed shard, or rotate credentials, an operator does it automatically based on observable cluster state. The pattern is elegant: you extend the Kubernetes API with a Custom Resource Definition, write a controller that reconciles the desired state with the actual state, and deploy it. Kubernetes becomes your automation platform, not just your container scheduler.</p>
+
+      <p>This post walks through writing a real operator using Kubebuilder — not a toy example, but the patterns I use in production operators. We'll cover the CRD, the reconciler, status conditions, leader election, and testing.</p>
+
+      <h2>1. The CRD + Controller Pattern</h2>
+
+      <p>A CustomResourceDefinition is just an extension of the Kubernetes API. You define a new resource kind (e.g., <code>WebApp</code>), its schema, and validation rules. Once the CRD is installed, users can create <code>WebApp</code> objects via <code>kubectl apply</code> just like they'd create a Deployment. The API server stores it in etcd, no different from any built-in resource.</p>
+
+      <p>The controller is a long-running process that watches for changes to your custom resources (and often to related built-in resources like Deployments and Services) via the Kubernetes watch API. When it detects a change, it runs the <strong>reconcile loop</strong>: compare desired state (the spec) with actual state (what's running in the cluster), and take whatever actions are necessary to close the gap. The reconciler is idempotent — it should be safe to run multiple times in succession with the same result.</p>
+
+      <div class="callout info"><strong>Level-triggered, not edge-triggered:</strong> The reconciler is called with the resource's current state, not a diff of what changed. You don't get "the replica count changed from 3 to 5" — you get "here is the current WebApp object." Your reconciler must inspect the actual cluster state and take action accordingly. This is intentional: it makes recovery from controller crashes trivial, because the next reconcile loop handles everything regardless of what the previous one did or failed to do.</div>
+
+      <h2>2. Scaffolding with Kubebuilder</h2>
+
+      <div class="code-block">
+        <span class="code-lang">bash — kubebuilder-scaffold.sh</span>
+        <pre><span class="cc"># Prerequisites: Go 1.22+, kubectl, kubebuilder v3</span>
+curl -L -o kubebuilder "https://go.kubebuilder.io/dl/latest/$(go env GOOS)/$(go env GOARCH)"
+chmod +x kubebuilder && mv kubebuilder /usr/local/bin/
+
+<span class="cc"># Initialize the project (sets up go module, Makefile, controller-runtime)</span>
+mkdir webapp-operator && cd webapp-operator
+kubebuilder init \
+  --domain example.com \
+  --repo github.com/yourorg/webapp-operator
+
+<span class="cc"># Create the API (generates CRD scaffold + controller scaffold)</span>
+kubebuilder create api \
+  --group apps \
+  --version v1alpha1 \
+  --kind WebApp \
+  --resource \
+  --controller
+
+<span class="cc"># Generated structure:</span>
+<span class="cc"># api/v1alpha1/webapp_types.go   — CRD spec/status types</span>
+<span class="cc"># controllers/webapp_controller.go — reconciler skeleton</span>
+<span class="cc"># config/crd/bases/             — generated CRD YAML (from controller-gen)</span>
+<span class="cc"># config/rbac/                  — RBAC for the controller's service account</span>
+
+<span class="cc"># Generate CRD YAML from your Go types (run after any type change)</span>
+make manifests
+
+<span class="cc"># Run locally against current kubeconfig (great for development)</span>
+make run ENABLE_WEBHOOKS=false</pre>
+      </div>
+
+      <h2>3. Defining the CRD Types</h2>
+
+      <div class="code-block">
+        <span class="code-lang">go — webapp_types.go</span>
+        <pre><span class="cc">// api/v1alpha1/webapp_types.go</span>
+<span class="ck">package</span> v1alpha1
+
+<span class="ck">import</span> (
+    metav1 <span class="cs">"k8s.io/apimachinery/pkg/apis/meta/v1"</span>
+)
+
+<span class="cc">// WebAppSpec defines the desired state of WebApp</span>
+<span class="ck">type</span> WebAppSpec <span class="ck">struct</span> {
+    <span class="cc">// Image is the container image for the web application</span>
+    <span class="cc">// +kubebuilder:validation:Required</span>
+    Image <span class="ck">string</span> `json:<span class="cs">"image"`</span>
+
+    <span class="cc">// Replicas is the desired number of pods. Defaults to 1.</span>
+    <span class="cc">// +kubebuilder:validation:Minimum=0</span>
+    <span class="cc">// +kubebuilder:validation:Maximum=100</span>
+    <span class="cc">// +kubebuilder:default=1</span>
+    Replicas <span class="ck">*int32</span> `json:<span class="cs">"replicas,omitempty"`</span>
+
+    <span class="cc">// Port is the container port to expose. Defaults to 8080.</span>
+    <span class="cc">// +kubebuilder:default=8080</span>
+    Port <span class="ck">int32</span> `json:<span class="cs">"port,omitempty"`</span>
+
+    <span class="cc">// Config holds arbitrary key-value configuration mounted as a ConfigMap.</span>
+    Config <span class="ck">map</span>[<span class="ck">string</span>]<span class="ck">string</span> `json:<span class="cs">"config,omitempty"`</span>
+
+    <span class="cc">// ServiceType controls how the Service is exposed. ClusterIP or LoadBalancer.</span>
+    <span class="cc">// +kubebuilder:validation:Enum=ClusterIP;LoadBalancer;NodePort</span>
+    <span class="cc">// +kubebuilder:default=ClusterIP</span>
+    ServiceType <span class="ck">string</span> `json:<span class="cs">"serviceType,omitempty"`</span>
+}
+
+<span class="cc">// WebAppStatus defines the observed state of WebApp</span>
+<span class="ck">type</span> WebAppStatus <span class="ck">struct</span> {
+    <span class="cc">// Conditions store the status conditions for this WebApp.</span>
+    <span class="cc">// +listType=map</span>
+    <span class="cc">// +listMapKey=type</span>
+    <span class="cc">// +patchStrategy=merge</span>
+    <span class="cc">// +patchMergeKey=type</span>
+    Conditions []metav1.Condition `json:<span class="cs">"conditions,omitempty"`</span>
+
+    <span class="cc">// ReadyReplicas is the number of pods with Ready condition</span>
+    ReadyReplicas <span class="ck">int32</span> `json:<span class="cs">"readyReplicas,omitempty"`</span>
+
+    <span class="cc">// ObservedGeneration tracks which version of the spec we last reconciled</span>
+    ObservedGeneration <span class="ck">int64</span> `json:<span class="cs">"observedGeneration,omitempty"`</span>
+}
+
+<span class="cc">// +kubebuilder:object:root=true</span>
+<span class="cc">// +kubebuilder:subresource:status</span>
+<span class="cc">// +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=".spec.replicas"</span>
+<span class="cc">// +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=".status.readyReplicas"</span>
+<span class="cc">// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"</span>
+<span class="ck">type</span> WebApp <span class="ck">struct</span> {
+    metav1.TypeMeta   `json:<span class="cs">",inline"`</span>
+    metav1.ObjectMeta `json:<span class="cs">"metadata,omitempty"`</span>
+
+    Spec   WebAppSpec   `json:<span class="cs">"spec,omitempty"`</span>
+    Status WebAppStatus `json:<span class="cs">"status,omitempty"`</span>
+}</pre>
+      </div>
+
+      <h2>4. Writing the Reconciler</h2>
+
+      <div class="code-block">
+        <span class="code-lang">go — webapp_controller.go</span>
+        <pre><span class="cc">// controllers/webapp_controller.go (key sections)</span>
+<span class="ck">func</span> (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, <span class="ck">error</span>) {
+    log := log.FromContext(ctx)
+
+    <span class="cc">// 1. Fetch the WebApp instance</span>
+    webapp := &amp;appsv1alpha1.WebApp{}
+    <span class="ck">if</span> err := r.Get(ctx, req.NamespacedName, webapp); err != <span class="ck">nil</span> {
+        <span class="ck">return</span> ctrl.Result{}, client.IgnoreNotFound(err)
+        <span class="cc">// IgnoreNotFound: if deleted, stop reconciling — no error</span>
+    }
+
+    <span class="cc">// 2. Reconcile ConfigMap from spec.config</span>
+    <span class="ck">if</span> err := r.reconcileConfigMap(ctx, webapp); err != <span class="ck">nil</span> {
+        r.setCondition(ctx, webapp, <span class="cs">"ConfigMapReady"</span>, metav1.ConditionFalse, <span class="cs">"ReconcileError"</span>, err.Error())
+        <span class="ck">return</span> ctrl.Result{}, err
+    }
+
+    <span class="cc">// 3. Reconcile Deployment</span>
+    <span class="ck">if</span> err := r.reconcileDeployment(ctx, webapp); err != <span class="ck">nil</span> {
+        r.setCondition(ctx, webapp, <span class="cs">"DeploymentReady"</span>, metav1.ConditionFalse, <span class="cs">"ReconcileError"</span>, err.Error())
+        <span class="ck">return</span> ctrl.Result{}, err
+    }
+
+    <span class="cc">// 4. Reconcile Service</span>
+    <span class="ck">if</span> err := r.reconcileService(ctx, webapp); err != <span class="ck">nil</span> {
+        <span class="ck">return</span> ctrl.Result{}, err
+    }
+
+    <span class="cc">// 5. Update status.readyReplicas from the Deployment status</span>
+    dep := &amp;appsv1.Deployment{}
+    <span class="ck">if</span> err := r.Get(ctx, req.NamespacedName, dep); err == <span class="ck">nil</span> {
+        webapp.Status.ReadyReplicas = dep.Status.ReadyReplicas
+    }
+    webapp.Status.ObservedGeneration = webapp.Generation
+    r.setCondition(ctx, webapp, <span class="cs">"Available"</span>, metav1.ConditionTrue, <span class="cs">"ReconcileSuccess"</span>, <span class="cs">"All resources reconciled"</span>)
+
+    <span class="ck">if</span> err := r.Status().Update(ctx, webapp); err != <span class="ck">nil</span> {
+        log.Error(err, <span class="cs">"unable to update WebApp status"</span>)
+        <span class="ck">return</span> ctrl.Result{}, err
+    }
+
+    <span class="cc">// Requeue after 30s to catch drift (e.g. someone manually edits the Deployment)</span>
+    <span class="ck">return</span> ctrl.Result{RequeueAfter: <span class="cv">30</span> * time.Second}, <span class="ck">nil</span>
+}
+
+<span class="ck">func</span> (r *WebAppReconciler) reconcileDeployment(ctx context.Context, webapp *appsv1alpha1.WebApp) <span class="ck">error</span> {
+    desired := r.deploymentForWebApp(webapp)
+
+    <span class="cc">// Set WebApp as the owner of this Deployment (enables garbage collection)</span>
+    <span class="ck">if</span> err := ctrl.SetControllerReference(webapp, desired, r.Scheme); err != <span class="ck">nil</span> {
+        <span class="ck">return</span> err
+    }
+
+    existing := &amp;appsv1.Deployment{}
+    err := r.Get(ctx, types.NamespacedName{Name: webapp.Name, Namespace: webapp.Namespace}, existing)
+    <span class="ck">if</span> errors.IsNotFound(err) {
+        <span class="ck">return</span> r.Create(ctx, desired)
+    } <span class="ck">else if</span> err != <span class="ck">nil</span> {
+        <span class="ck">return</span> err
+    }
+
+    <span class="cc">// Update if spec changed (compare relevant fields, not full object)</span>
+    <span class="ck">if</span> !reflect.DeepEqual(existing.Spec.Template.Spec.Containers, desired.Spec.Template.Spec.Containers) ||
+        *existing.Spec.Replicas != *desired.Spec.Replicas {
+        existing.Spec = desired.Spec
+        <span class="ck">return</span> r.Update(ctx, existing)
+    }
+    <span class="ck">return nil</span>
+}
+
+<span class="cc">// Watch: reconcile when owned Deployments change, not just WebApp</span>
+<span class="ck">func</span> (r *WebAppReconciler) SetupWithManager(mgr ctrl.Manager) <span class="ck">error</span> {
+    <span class="ck">return</span> ctrl.NewControllerManagedBy(mgr).
+        For(&amp;appsv1alpha1.WebApp{}).
+        Owns(&amp;appsv1.Deployment{}).   <span class="cc">// re-reconcile if owned Deployment changes</span>
+        Owns(&amp;corev1.Service{}).
+        Owns(&amp;corev1.ConfigMap{}).
+        WithOptions(controller.Options{
+            MaxConcurrentReconciles: <span class="cv">3</span>,  <span class="cc">// process 3 WebApps concurrently</span>
+        }).
+        Complete(r)
+}</pre>
+      </div>
+
+      <div class="callout tip"><strong>Owner references are your garbage collector:</strong> Always set a controller owner reference from your operator-managed resources (Deployments, Services, ConfigMaps) back to your custom resource. When the user deletes the WebApp, Kubernetes cascading deletion will automatically clean up all owned resources. Without this, you create resource leaks that are painful to track down.</div>
+
+      <h2>5. Status Conditions and Events</h2>
+
+      <p>Status conditions are the standard Kubernetes way to communicate resource health. Use <code>meta/v1.Condition</code> with types like <code>Available</code>, <code>Progressing</code>, and <code>Degraded</code>. Set <code>ObservedGeneration</code> on every condition so users can tell if the condition reflects the current spec or a stale one.</p>
+
+      <p>Kubernetes Events are complementary: use them for transient messages ("Created Deployment", "Updated ConfigMap", "Waiting for pods to become ready"). Events appear in <code>kubectl describe webapp myapp</code> and are valuable for debugging without requiring log access. Use <code>r.Recorder.Event(webapp, corev1.EventTypeNormal, "Created", "Deployment created")</code> from your reconciler.</p>
+
+      <h2>6. Leader Election for HA</h2>
+
+      <p>In production, run multiple replicas of your operator for high availability. But you cannot run multiple reconciler instances simultaneously — they'll race. The solution is leader election: only the leader processes reconcile events; the others stand by and take over if the leader fails.</p>
+
+      <p>controller-runtime handles this automatically. In your <code>main.go</code>, enable it when creating the manager:</p>
+
+      <div class="code-block">
+        <span class="code-lang">go — main.go (leader election)</span>
+        <pre>mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+    Scheme:                  scheme,
+    MetricsBindAddress:      <span class="cs">":8080"</span>,
+    HealthProbeBindAddress:  <span class="cs">":8081"</span>,
+    LeaderElection:          <span class="cs">true</span>,
+    LeaderElectionID:        <span class="cs">"webapp-operator-leader"</span>,
+    <span class="cc">// Leader election uses a Lease resource in the operator's namespace</span>
+    <span class="cc">// The controller holding the Lease is the leader</span>
+    <span class="cc">// If it fails to renew within LeaseDuration, a standby takes over</span>
+    LeaseDuration:           &amp;leaseDuration,   <span class="cc">// default: 15s</span>
+    RenewDeadline:           &amp;renewDeadline,   <span class="cc">// default: 10s</span>
+    RetryPeriod:             &amp;retryPeriod,     <span class="cc">// default: 2s</span>
+})
+<span class="ck">if</span> err != <span class="ck">nil</span> {
+    setupLog.Error(err, <span class="cs">"unable to start manager"</span>)
+    os.Exit(<span class="cv">1</span>)
+}
+
+<span class="cc">// Deploy 2+ replicas of the operator Deployment</span>
+<span class="cc">// The non-leader replicas will block at manager.Start() until they win election</span></pre>
+      </div>
+
+      <h2>7. Unit Testing with the Fake Client</h2>
+
+      <p>controller-runtime provides a fake client that implements the same interface as the real Kubernetes client but stores objects in memory. This lets you test your reconciler without a running cluster — fast, deterministic, no external dependencies.</p>
+
+      <div class="code-block">
+        <span class="code-lang">go — webapp_controller_test.go</span>
+        <pre><span class="ck">func</span> TestWebAppReconciler_CreatesDeployment(t *testing.T) {
+    <span class="cc">// Build a fake client pre-populated with a WebApp object</span>
+    webapp := &amp;appsv1alpha1.WebApp{
+        ObjectMeta: metav1.ObjectMeta{Name: <span class="cs">"test-app"</span>, Namespace: <span class="cs">"default"</span>},
+        Spec: appsv1alpha1.WebAppSpec{
+            Image:    <span class="cs">"nginx:1.25"</span>,
+            Replicas: ptr(<span class="ck">int32</span>(<span class="cv">2</span>)),
+            Port:     <span class="cv">8080</span>,
+        },
+    }
+
+    fakeClient := fake.NewClientBuilder().
+        WithScheme(scheme).
+        WithObjects(webapp).
+        WithStatusSubresource(webapp).  <span class="cc">// enable status updates</span>
+        Build()
+
+    reconciler := &amp;WebAppReconciler{
+        Client:   fakeClient,
+        Scheme:   scheme,
+        Recorder: record.NewFakeRecorder(<span class="cv">10</span>),
+    }
+
+    <span class="cc">// Run the reconciler</span>
+    result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+        NamespacedName: types.NamespacedName{Name: <span class="cs">"test-app"</span>, Namespace: <span class="cs">"default"</span>},
+    })
+
+    require.NoError(t, err)
+    assert.Equal(t, <span class="cv">30</span>*time.Second, result.RequeueAfter)
+
+    <span class="cc">// Verify the Deployment was created</span>
+    dep := &amp;appsv1.Deployment{}
+    err = fakeClient.Get(context.Background(),
+        types.NamespacedName{Name: <span class="cs">"test-app"</span>, Namespace: <span class="cs">"default"</span>}, dep)
+    require.NoError(t, err)
+    assert.Equal(t, <span class="ck">int32</span>(<span class="cv">2</span>), *dep.Spec.Replicas)
+    assert.Equal(t, <span class="cs">"nginx:1.25"</span>, dep.Spec.Template.Spec.Containers[<span class="cv">0</span>].Image)
+
+    <span class="cc">// Verify owner reference set correctly</span>
+    assert.Len(t, dep.OwnerReferences, <span class="cv">1</span>)
+    assert.Equal(t, <span class="cs">"test-app"</span>, dep.OwnerReferences[<span class="cv">0</span>].Name)
+}</pre>
+      </div>
+
+      <h2>8. When NOT to Write an Operator</h2>
+
+      <p>Operators are powerful but expensive to build and maintain. Before writing one, ask: can Helm or Kustomize + a simple Job handle this? Most stateless application deployments, even complex ones, don't need an operator. Helm handles parameterization, upgrades, and rollbacks for stateless apps well.</p>
+
+      <p>Write an operator when you need one of these things Helm cannot do:</p>
+      <ul>
+        <li><strong>React to observed state:</strong> "If the database replica is lagging by more than 30 seconds, promote a new primary" — requires continuous observation and action, not a one-time apply</li>
+        <li><strong>Multi-step lifecycle management:</strong> Database operators (CloudNativePG, Zalando postgres-operator) handle backup scheduling, point-in-time recovery, failover — workflows that span minutes and require state</li>
+        <li><strong>Self-healing without human intervention:</strong> cert-manager renews certificates before they expire; you don't run Helm to do it</li>
+        <li><strong>Custom autoscaling logic:</strong> KEDA (event-driven autoscaling) reacts to queue depth, Kafka lag, or custom metrics — logic that a Deployment's HPA cannot express</li>
+      </ul>
+
+      <div class="callout warn"><strong>Operators are software that requires maintenance:</strong> Every operator you write is production software — it needs tests, observability (metrics from the reconciler loop), alerting on reconcile errors, and upgrade procedures. I've seen teams write operators to avoid operational complexity and then create more operational complexity managing the operator itself. Only build one if the value clearly outweighs the maintenance cost.</div>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">&copy; 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">&larr; all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

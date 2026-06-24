@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevSecOps Pipeline: SAST, Container Scanning &amp; Secrets Detection in CI/CD | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">DevSecOps</span>
+        <span class="blog-tag">Security</span>
+        <span class="blog-tag">CI/CD</span>
+      </div>
+      <h1>DevSecOps Pipeline: SAST, Container Scanning &amp; Secrets Detection in CI/CD</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>April 2026</span><span class="dot-sep">·</span>
+        <span>11 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>Security findings discovered in production cost 30x more to remediate than findings caught at commit time — this is not a guess, it's the NIST data that's been cited since 2002 and has only become more dramatic in the cloud-native era. A leaked API key in a public GitHub repo can be found and exploited within seconds by automated scanners. A critical CVE in your base image, running in production for 6 months, can be the entry point for a supply chain attack that ends your company.</p>
+
+      <p>Shift-left security doesn't mean making developers into security engineers. It means putting the right automated guardrails at the right points in the pipeline so that violations are caught before they cost anyone anything. This post covers the full stack: pre-commit hooks, SAST, container scanning, secrets detection, policy-as-code, and image signing.</p>
+
+      <h2>1. The Shift-Left Model: Where to Put Each Check</h2>
+
+      <p>Not every security check belongs in every place. Running a full container image scan on every pre-commit hook would kill developer productivity. The correct model is tiered by speed and cost:</p>
+
+      <ul>
+        <li><strong>Pre-commit:</strong> Gitleaks (secrets detection), <code>terraform fmt</code> and <code>terraform validate</code>, Dockerfile linting (hadolint). Fast, local, no network. Under 5 seconds.</li>
+        <li><strong>Pull Request / CI:</strong> Semgrep SAST, Trivy image scan, Conftest/OPA policy checks on manifests, dependency audit (<code>npm audit</code>, <code>pip-audit</code>, <code>govulncheck</code>). Can be slower — developers wait for CI, not pre-commit.</li>
+        <li><strong>Post-merge / CD:</strong> Full SBOM generation, Cosign image signing, continuous scanning of deployed images (Trivy in cluster with Starboard/Trivy Operator), runtime policy enforcement (Falco, Tetragon).</li>
+      </ul>
+
+      <h2>2. Gitleaks: Secrets Detection at Commit Time</h2>
+
+      <p>Gitleaks scans git history and working tree for secrets — API keys, tokens, private keys, passwords — using entropy analysis and regex rules for hundreds of known secret patterns. The most important deployment is as a pre-commit hook so secrets never enter git history at all.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — .pre-commit-config.yaml</span>
+        <pre><span class="cn">repos</span>:
+  - <span class="cn">repo</span>: <span class="cs">https://github.com/gitleaks/gitleaks</span>
+    <span class="cn">rev</span>: <span class="cs">v8.21.2</span>
+    <span class="cn">hooks</span>:
+      - <span class="cn">id</span>: <span class="cs">gitleaks</span>
+
+  - <span class="cn">repo</span>: <span class="cs">https://github.com/hadolint/hadolint</span>
+    <span class="cn">rev</span>: <span class="cs">v2.12.0</span>
+    <span class="cn">hooks</span>:
+      - <span class="cn">id</span>: <span class="cs">hadolint-docker</span>
+
+  - <span class="cn">repo</span>: <span class="cs">https://github.com/antonbabenko/pre-commit-terraform</span>
+    <span class="cn">rev</span>: <span class="cs">v1.96.1</span>
+    <span class="cn">hooks</span>:
+      - <span class="cn">id</span>: <span class="cs">terraform_fmt</span>
+      - <span class="cn">id</span>: <span class="cs">terraform_validate</span>
+      - <span class="cn">id</span>: <span class="cs">terraform_tflint</span></pre>
+      </div>
+
+      <p>For teams that resist pre-commit hooks, also add Gitleaks to CI as a blocking check. Scan the full PR diff: <code>gitleaks detect --source . --log-opts "origin/main..HEAD"</code>. This catches secrets that bypass the pre-commit hook (developers working without hooks installed, IDE commits, etc.).</p>
+
+      <div class="callout warn"><strong>What to do when a secret is found in history.</strong> Removing a secret from git history with <code>git filter-branch</code> or BFG Repo Cleaner does NOT make it safe — it was already in the repo and may have been cloned by CI runners, mirrors, or other developers. Rotate the credential immediately. Always rotate first, then clean history. Gitleaks can also scan S3 buckets, Jira, and Confluence if you need to find historical exposure.</div>
+
+      <h2>3. Trivy: Container Image Scanning with GitHub Actions Integration</h2>
+
+      <p>Trivy scans container images for OS package vulnerabilities (using CVE databases), language package vulnerabilities (go.sum, package-lock.json, requirements.txt, pom.xml), misconfigurations in Dockerfile and Kubernetes manifests, and exposed secrets. It's fast, accurate, and the SARIF output integrates directly with GitHub Security tab.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — .github/workflows/security.yaml</span>
+        <pre><span class="cn">name</span>: <span class="cs">Security Scanning</span>
+
+<span class="cn">on</span>:
+  <span class="cn">push</span>:
+    <span class="cn">branches</span>: [<span class="cs">main</span>]
+  <span class="cn">pull_request</span>:
+    <span class="cn">branches</span>: [<span class="cs">main</span>]
+  <span class="cn">schedule</span>:
+    - <span class="cn">cron</span>: <span class="cs">'0 6 * * 1'</span>   <span class="cc"># weekly scan even without code changes</span>
+
+<span class="cn">jobs</span>:
+  <span class="cn">trivy-image-scan</span>:
+    <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+    <span class="cn">permissions</span>:
+      <span class="cn">security-events</span>: <span class="cs">write</span>
+      <span class="cn">contents</span>: <span class="cs">read</span>
+    <span class="cn">steps</span>:
+      - <span class="cn">uses</span>: <span class="cs">actions/checkout@v4</span>
+
+      - <span class="cn">name</span>: <span class="cs">Build image for scanning</span>
+        <span class="cn">run</span>: <span class="cs">docker build -t scan-target:${{ github.sha }} .</span>
+
+      - <span class="cn">name</span>: <span class="cs">Run Trivy vulnerability scanner</span>
+        <span class="cn">uses</span>: <span class="cs">aquasecurity/trivy-action@master</span>
+        <span class="cn">with</span>:
+          <span class="cn">image-ref</span>: <span class="cs">scan-target:${{ github.sha }}</span>
+          <span class="cn">format</span>: <span class="cs">sarif</span>
+          <span class="cn">output</span>: <span class="cs">trivy-image.sarif</span>
+          <span class="cn">severity</span>: <span class="cs">CRITICAL,HIGH</span>
+          <span class="cn">exit-code</span>: <span class="cs">'1'</span>
+          <span class="cn">ignore-unfixed</span>: <span class="ck">true</span>   <span class="cc"># don't fail on CVEs with no fix yet</span>
+          <span class="cn">vuln-type</span>: <span class="cs">os,library</span>
+          <span class="cn">trivyignores</span>: <span class="cs">.trivyignore</span>  <span class="cc"># per-repo exception list</span>
+
+      - <span class="cn">name</span>: <span class="cs">Upload image scan results to GitHub Security</span>
+        <span class="cn">uses</span>: <span class="cs">github/codeql-action/upload-sarif@v3</span>
+        <span class="cn">if</span>: <span class="cs">always()</span>
+        <span class="cn">with</span>:
+          <span class="cn">sarif_file</span>: <span class="cs">trivy-image.sarif</span>
+          <span class="cn">category</span>: <span class="cs">trivy-image</span>
+
+  <span class="cn">trivy-iac-scan</span>:
+    <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+    <span class="cn">permissions</span>:
+      <span class="cn">security-events</span>: <span class="cs">write</span>
+      <span class="cn">contents</span>: <span class="cs">read</span>
+    <span class="cn">steps</span>:
+      - <span class="cn">uses</span>: <span class="cs">actions/checkout@v4</span>
+
+      - <span class="cn">name</span>: <span class="cs">Scan Kubernetes manifests and Terraform for misconfigurations</span>
+        <span class="cn">uses</span>: <span class="cs">aquasecurity/trivy-action@master</span>
+        <span class="cn">with</span>:
+          <span class="cn">scan-type</span>: <span class="cs">config</span>
+          <span class="cn">scan-ref</span>: <span class="cs">.</span>
+          <span class="cn">format</span>: <span class="cs">sarif</span>
+          <span class="cn">output</span>: <span class="cs">trivy-config.sarif</span>
+          <span class="cn">exit-code</span>: <span class="cs">'0'</span>   <span class="cc"># warn only for IaC misconfig — don't block</span>
+
+      - <span class="cn">uses</span>: <span class="cs">github/codeql-action/upload-sarif@v3</span>
+        <span class="cn">if</span>: <span class="cs">always()</span>
+        <span class="cn">with</span>:
+          <span class="cn">sarif_file</span>: <span class="cs">trivy-config.sarif</span>
+          <span class="cn">category</span>: <span class="cs">trivy-iac</span></pre>
+      </div>
+
+      <p>The <code>.trivyignore</code> file deserves attention. Every Trivy deployment eventually accumulates CVEs that are: in a package you don't use (e.g., a web server CVE in a library you import but never expose), fixed in a newer version that's blocked by another dependency, or accepted risk documented in your security tracker. The ignore file lets you suppress these with a comment explaining why, so the signal-to-noise ratio stays high. Without it, developers start ignoring all Trivy output because it's 95% noise.</p>
+
+      <h2>4. Semgrep: SAST with Custom Rules</h2>
+
+      <p>Semgrep does static analysis at the AST level — it understands code structure, not just text patterns. This means it can find things like "user input passed directly to a subprocess call" across Python, Go, JavaScript, Java, and 20 other languages, without the false positives you get from grep-based approaches.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — .github/workflows/semgrep.yaml (job snippet)</span>
+        <pre><span class="cn">semgrep</span>:
+  <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+  <span class="cn">container</span>:
+    <span class="cn">image</span>: <span class="cs">semgrep/semgrep</span>
+  <span class="cn">steps</span>:
+    - <span class="cn">uses</span>: <span class="cs">actions/checkout@v4</span>
+
+    - <span class="cn">name</span>: <span class="cs">Run Semgrep SAST</span>
+      <span class="cn">run</span>: |
+        <span class="cs">semgrep ci \
+          --config p/security-audit \
+          --config p/secrets \
+          --config p/owasp-top-ten \
+          --config ./semgrep-rules/ \
+          --sarif --output semgrep.sarif \
+          --error</span>   <span class="cc"># exit non-zero on findings</span>
+      <span class="cn">env</span>:
+        <span class="cn">SEMGREP_APP_TOKEN</span>: <span class="cs">${{ secrets.SEMGREP_APP_TOKEN }}</span>
+
+    - <span class="cn">uses</span>: <span class="cs">github/codeql-action/upload-sarif@v3</span>
+      <span class="cn">if</span>: <span class="cs">always()</span>
+      <span class="cn">with</span>:
+        <span class="cn">sarif_file</span>: <span class="cs">semgrep.sarif</span></pre>
+      </div>
+
+      <p>The <code>./semgrep-rules/</code> directory is where custom rules live. These are the most valuable part — write rules for your specific codebase anti-patterns. Example: your team has a custom logging library and you want to prevent anyone from logging <code>request.headers['Authorization']</code> directly:</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — semgrep-rules/no-log-auth-header.yaml</span>
+        <pre><span class="cn">rules</span>:
+  - <span class="cn">id</span>: <span class="cs">no-log-authorization-header</span>
+    <span class="cn">message</span>: <span class="cs">Do not log the Authorization header — it contains bearer tokens</span>
+    <span class="cn">severity</span>: <span class="cs">ERROR</span>
+    <span class="cn">languages</span>: [<span class="cs">python</span>]
+    <span class="cn">pattern-either</span>:
+      - <span class="cn">pattern</span>: <span class="cs">logger.$METHOD(..., request.headers['Authorization'], ...)</span>
+      - <span class="cn">pattern</span>: <span class="cs">logger.$METHOD(..., request.headers.get("Authorization"), ...)</span>
+      - <span class="cn">pattern</span>: <span class="cs">print(..., request.headers['Authorization'], ...)</span>
+    <span class="cn">metadata</span>:
+      <span class="cn">category</span>: <span class="cs">security</span>
+      <span class="cn">cwe</span>: <span class="cs">CWE-312</span>
+      <span class="cn">confidence</span>: <span class="cs">HIGH</span></pre>
+      </div>
+
+      <h2>5. OPA/Conftest: Policy-as-Code for Kubernetes Manifests</h2>
+
+      <p>OPA (Open Policy Agent) with Conftest lets you write policies in Rego that validate Kubernetes YAML before it reaches the cluster. This catches misconfigurations that are technically valid Kubernetes but violate your security standards: containers running as root, missing resource limits, images from untrusted registries, missing network policies.</p>
+
+      <div class="code-block">
+        <span class="code-lang">rego — policy/kubernetes/no-root-containers.rego</span>
+        <pre><span class="ck">package</span> main
+
+<span class="cn">deny</span>[msg] {
+  <span class="cc"># Fail if any container runs as root (UID 0)</span>
+  container := input.spec.template.spec.containers[_]
+  container.securityContext.runAsUser == <span class="cv">0</span>
+  msg := sprintf(<span class="cs">"Container '%s' must not run as root (runAsUser: 0)"</span>,
+    [container.name])
+}
+
+<span class="cn">deny</span>[msg] {
+  <span class="cc"># Fail if securityContext is completely absent</span>
+  container := input.spec.template.spec.containers[_]
+  not container.securityContext
+  msg := sprintf(<span class="cs">"Container '%s' is missing securityContext — runAsNonRoot required"</span>,
+    [container.name])
+}
+
+<span class="cn">deny</span>[msg] {
+  <span class="cc"># Fail if image is not from our approved registries</span>
+  container := input.spec.template.spec.containers[_]
+  image := container.image
+  not startswith(image, <span class="cs">"ghcr.io/myorg/"</span>)
+  not startswith(image, <span class="cs">"123456789.dkr.ecr.us-east-1.amazonaws.com/"</span>)
+  not startswith(image, <span class="cs">"public.ecr.aws/"</span>)
+  msg := sprintf(<span class="cs">"Container '%s' uses image from untrusted registry: %s"</span>,
+    [container.name, image])
+}
+
+<span class="cn">warn</span>[msg] {
+  <span class="cc"># Warn (don't fail) if no resource limits are set</span>
+  container := input.spec.template.spec.containers[_]
+  not container.resources.limits
+  msg := sprintf(<span class="cs">"Container '%s' has no resource limits set"</span>, [container.name])
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — GitHub Actions: Conftest job</span>
+        <pre><span class="cn">conftest</span>:
+  <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+  <span class="cn">steps</span>:
+    - <span class="cn">uses</span>: <span class="cs">actions/checkout@v4</span>
+
+    - <span class="cn">name</span>: <span class="cs">Install conftest</span>
+      <span class="cn">run</span>: |
+        <span class="cs">curl -Lo conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_0.56.0_Linux_x86_64.tar.gz</span>
+        <span class="cs">tar xzf conftest.tar.gz conftest</span>
+        <span class="cs">chmod +x conftest &amp;&amp; sudo mv conftest /usr/local/bin/</span>
+
+    - <span class="cn">name</span>: <span class="cs">Validate Kubernetes manifests against policies</span>
+      <span class="cn">run</span>: |
+        <span class="cs">conftest test \
+          --policy policy/kubernetes/ \
+          --namespace main \
+          k8s/</span></pre>
+      </div>
+
+      <div class="callout tip"><strong>Start with warnings, then escalate to denials.</strong> When you first introduce OPA policies into a pipeline, the number of existing violations is usually daunting. Start with <code>warn</code> rules for everything. Give teams 30-60 days to fix their existing manifests. Then flip the rules to <code>deny</code>. This avoids the "security team blocked my deployment" backlash that kills DevSecOps adoption programs.</div>
+
+      <h2>6. Cosign: Image Signing and Verification</h2>
+
+      <p>Cosign (from the Sigstore project) signs container images using keyless signing backed by OIDC. In a GitHub Actions workflow, the GHA OIDC token is used as the identity — no key management required. The signature is stored in the OCI registry alongside the image. At admission time, a Kubernetes admission controller (Kyverno or OPA Gatekeeper) verifies the signature before allowing the pod to start.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — GitHub Actions: sign image after push</span>
+        <pre><span class="cn">sign-image</span>:
+  <span class="cn">needs</span>: [<span class="cs">build-scan-push</span>]
+  <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+  <span class="cn">permissions</span>:
+    <span class="cn">packages</span>: <span class="cs">write</span>
+    <span class="cn">id-token</span>: <span class="cs">write</span>   <span class="cc"># required for keyless signing</span>
+  <span class="cn">steps</span>:
+    - <span class="cn">name</span>: <span class="cs">Install Cosign</span>
+      <span class="cn">uses</span>: <span class="cs">sigstore/cosign-installer@v3</span>
+
+    - <span class="cn">name</span>: <span class="cs">Sign the container image (keyless)</span>
+      <span class="cn">run</span>: |
+        <span class="cs">cosign sign --yes \
+          ghcr.io/myorg/api@${{ needs.build-scan-push.outputs.image-digest }}</span>
+      <span class="cc"># Signs using the GitHub Actions OIDC identity</span>
+      <span class="cc"># Signature stored in ghcr.io/myorg/api:sha256-abc123.sig</span>
+      <span class="cc"># Transparency log entry created in Rekor for public auditability</span>
+
+    - <span class="cn">name</span>: <span class="cs">Attach SBOM to image</span>
+      <span class="cn">run</span>: |
+        <span class="cs">syft ghcr.io/myorg/api@${{ needs.build-scan-push.outputs.image-digest }} \
+          -o spdx-json > sbom.spdx.json</span>
+        <span class="cs">cosign attach sbom \
+          --sbom sbom.spdx.json \
+          ghcr.io/myorg/api@${{ needs.build-scan-push.outputs.image-digest }}</span>
+        <span class="cs">cosign sign --yes \
+          --attachment sbom \
+          ghcr.io/myorg/api@${{ needs.build-scan-push.outputs.image-digest }}</span></pre>
+      </div>
+
+      <p>The Kyverno ClusterPolicy that enforces signature verification at admission time:</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — kyverno ClusterPolicy: require signed images</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">kyverno.io/v1</span>
+<span class="cn">kind</span>: <span class="cs">ClusterPolicy</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">require-signed-images</span>
+<span class="cn">spec</span>:
+  <span class="cn">validationFailureAction</span>: <span class="cs">Enforce</span>
+  <span class="cn">background</span>: <span class="ck">false</span>
+  <span class="cn">rules</span>:
+    - <span class="cn">name</span>: <span class="cs">check-image-signature</span>
+      <span class="cn">match</span>:
+        <span class="cn">any</span>:
+          - <span class="cn">resources</span>:
+              <span class="cn">kinds</span>: [<span class="cs">Pod</span>]
+              <span class="cn">namespaces</span>:
+                - <span class="cs">api-prod</span>
+                - <span class="cs">payments-prod</span>
+      <span class="cn">verifyImages</span>:
+        - <span class="cn">imageReferences</span>: [<span class="cs">"ghcr.io/myorg/*"</span>]
+          <span class="cn">attestors</span>:
+            - <span class="cn">entries</span>:
+                - <span class="cn">keyless</span>:
+                    <span class="cn">subject</span>: <span class="cs">"https://github.com/myorg/*/.github/workflows/*.yaml@refs/heads/main"</span>
+                    <span class="cn">issuer</span>: <span class="cs">"https://token.actions.githubusercontent.com"</span></pre>
+      </div>
+
+      <h2>7. When to Fail vs When to Warn</h2>
+
+      <p>The failure policy matters as much as the detection capability. A pipeline that blocks on every finding gets bypassed. A pipeline that only warns on everything is useless. Here's the policy I apply in production:</p>
+
+      <ul>
+        <li><strong>Hard fail (block merge):</strong> Gitleaks secret detection, Trivy CRITICAL severity CVEs with a fix available, Cosign signature verification failure, Conftest policy denial rules (privileged containers, root user, disallowed registries), Semgrep HIGH/CRITICAL findings.</li>
+        <li><strong>Warn (comment on PR, do not block):</strong> Trivy HIGH severity CVEs without a fix, Trivy MEDIUM, Semgrep MEDIUM and informational findings, Conftest warn rules (missing resource limits, missing readinessProbe), dependency upgrade suggestions.</li>
+        <li><strong>Never run in pre-commit:</strong> Container image scanning (too slow), full Semgrep ruleset (too slow). Pre-commit should complete in under 10 seconds or developers disable it.</li>
+      </ul>
+
+      <div class="callout info"><strong>Security debt tracking.</strong> Every <code>.trivyignore</code> exception, every Semgrep suppression (<code># nosemgrep</code>), and every accepted Gitleaks false positive should be tracked in your issue tracker with a due date for resolution. A quarterly security debt review that removes stale suppressions is worth scheduling. Without this, the ignore files grow indefinitely and the scanner becomes noise.</div>
+
+      <h2>8. SBOM Generation with Syft</h2>
+
+      <p>An SBOM (Software Bill of Materials) is a machine-readable inventory of every library, package, and component in your container image. It's required for SLSA compliance, increasingly required by enterprise customers, and practically useful for quickly answering "are we affected by CVE-XXXX-YYYY?" when the next Log4Shell-type vulnerability hits.</p>
+
+      <p>Generate it with Syft as part of your post-push CI step and attach it to the image with Cosign. When a new CVE is announced, you can query all SBOMs in your registry to find affected services in minutes rather than days:</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — query SBOMs for CVE exposure</span>
+        <pre><span class="cc"># Download SBOM for a specific image</span>
+<span class="ck">cosign</span> download sbom ghcr.io/myorg/api:sha-abc123 > api.sbom.json
+
+<span class="cc"># Query with grype to check for a specific CVE across the SBOM</span>
+<span class="ck">grype</span> sbom:api.sbom.json --only-fixed --by-cve CVE-2021-44228
+
+<span class="cc"># Or use syft directly against a running image</span>
+<span class="ck">syft</span> ghcr.io/myorg/api:sha-abc123 -o table | grep -i log4j
+
+<span class="cc"># Batch: check all production images for a CVE</span>
+<span class="ck">for</span> service in api payments worker cron; do
+  <span class="cs">echo "=== $service ==="</span>
+  <span class="ck">cosign</span> download sbom ghcr.io/myorg/${service}:latest 2>/dev/null \
+    | grype --quiet --by-cve CVE-2021-44228
+<span class="ck">done</span></pre>
+      </div>
+
+      <h2>Summary</h2>
+
+      <p>A mature DevSecOps pipeline is not a single tool — it's a layered system where each control has a clear purpose and a clear failure policy. Gitleaks and pre-commit hooks prevent secrets from entering history. Trivy and Semgrep catch vulnerabilities and code issues at PR time. Conftest enforces Kubernetes security standards before manifests reach the cluster. Cosign and Kyverno ensure only CI-built, signed images run in production. And Syft gives you the SBOM inventory that makes CVE response a query, not a crisis.</p>
+
+      <p>The common failure mode is implementing all of these as "warn only" because nobody wants to block deployments. Resist that. Start with a small, high-confidence set of hard failures — leaked secrets and exploitable CRITICAL CVEs — and expand from there as the team builds trust in the tooling.</p>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">← all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

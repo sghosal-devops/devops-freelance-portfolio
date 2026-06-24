@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chaos Engineering with LitmusChaos: Breaking Things on Purpose | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">&larr; back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Chaos Engineering</span>
+        <span class="blog-tag">SRE</span>
+        <span class="blog-tag">Kubernetes</span>
+      </div>
+      <h1>Chaos Engineering with LitmusChaos: Breaking Things on Purpose</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">&middot;</span>
+        <span>March 2026</span><span class="dot-sep">&middot;</span>
+        <span>10 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>The most dangerous belief in software engineering is that your system is resilient because it hasn't failed yet. Absence of observed failure is not evidence of absence of failure modes. Chaos engineering is the discipline of proactively exposing those failure modes in a controlled way — before your users do it for you at the worst possible moment.</p>
+
+      <p>This is not about being reckless. This is about running experiments with clearly defined hypotheses, measurable steady-state baselines, and blast radius controls. Netflix calls them GameDays. Google SRE calls them DiRT (Disaster Recovery Testing) exercises. I call them "the reason I sleep at 3am instead of being paged."</p>
+
+      <h2>1. The Principles Behind Chaos Engineering</h2>
+
+      <p>The Principles of Chaos Engineering (principlesofchaos.org) define the practice precisely. The core idea: build a hypothesis about system behavior under turbulent conditions, design an experiment, run it with minimal blast radius, observe, and learn. The keyword is <em>hypothesis</em>. "Let's kill some pods and see what happens" is not chaos engineering — it's gambling. A proper experiment looks like this:</p>
+
+      <ul>
+        <li><strong>Steady state:</strong> p99 latency &lt; 200ms, error rate &lt; 0.1%, all pods Ready</li>
+        <li><strong>Hypothesis:</strong> Killing one pod from a 3-replica Deployment will not change the steady state because the HPA and readiness probes will route traffic only to healthy pods</li>
+        <li><strong>Experiment:</strong> Kill one random pod in the <code>payment-api</code> Deployment</li>
+        <li><strong>Observation:</strong> Monitor p99 latency and error rate for 5 minutes post-kill</li>
+        <li><strong>Learning:</strong> Either confirm the hypothesis or discover the gap</li>
+      </ul>
+
+      <p>Start in staging. Always. Once you have a mature practice, you can move to production with careful guardrails — but staging must be treated as a production-equivalent environment (same resource sizes, same topology, real-ish traffic via synthetic load) or the experiments are meaningless.</p>
+
+      <h2>2. LitmusChaos Architecture</h2>
+
+      <p>LitmusChaos is a CNCF-incubating chaos engineering framework built for Kubernetes. Its architecture has three main components:</p>
+
+      <ul>
+        <li><strong>Chaos Operator:</strong> A Kubernetes operator that watches for <code>ChaosEngine</code> and <code>ChaosExperiment</code> CRDs and executes the corresponding experiment logic</li>
+        <li><strong>ChaosHub:</strong> A GitOps-style catalog of pre-built experiments (pod-kill, node-drain, CPU hog, network latency, disk fill, and 50+ more). You point it at a Git repo containing experiment YAML definitions</li>
+        <li><strong>ChaosCenter:</strong> The optional control plane UI that provides a workflow builder, scheduling, GitOps integration, and observability dashboards</li>
+      </ul>
+
+      <p>For most teams, you only need the Chaos Operator + a local ChaosHub clone. ChaosCenter is valuable when multiple teams are running experiments and you need governance and audit trails.</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — install-litmus.sh</span>
+        <pre><span class="cc"># Install LitmusChaos via Helm (operator only, no ChaosCenter)</span>
+helm repo add litmuschaos https://litmuschaos.github.io/litmus-helm/
+helm repo update
+
+helm install chaos litmuschaos/litmus \
+  --namespace litmus \
+  --create-namespace \
+  --set portal.frontend.service.type=ClusterIP \
+  --set adminConfig.SKIP_SSL_VERIFY=false
+
+<span class="cc"># Verify operator is running</span>
+kubectl get pods -n litmus
+<span class="cc"># NAME                                    READY   STATUS    RESTARTS</span>
+<span class="cc"># chaos-litmus-frontend-xxx               1/1     Running   0</span>
+<span class="cc"># chaos-litmus-server-xxx                 1/1     Running   0</span>
+<span class="cc"># chaos-operator-ce-xxx                   1/1     Running   0</span>
+
+<span class="cc"># Install generic ChaosExperiment definitions into your target namespace</span>
+kubectl apply -f https://hub.litmuschaos.io/api/chaos/master?file=charts/generic/experiments.yaml \
+  -n production</pre>
+      </div>
+
+      <h2>3. Writing a ChaosEngine Manifest</h2>
+
+      <p>The <code>ChaosEngine</code> is the central object. It binds a target application to one or more experiments, defines the steady-state hypothesis check (via probes), and controls execution parameters. Here's a production-realistic example for pod-kill with HTTP and Prometheus probes:</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — pod-kill-engine.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">litmuschaos.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">ChaosEngine</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">payment-api-pod-kill</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">appinfo</span>:
+    <span class="cn">appns</span>: <span class="cs">production</span>
+    <span class="cn">applabel</span>: <span class="cs">"app=payment-api"</span>
+    <span class="cn">appkind</span>: <span class="cs">deployment</span>
+
+  <span class="cn">engineState</span>: <span class="cs">"active"</span>
+  <span class="cn">annotationCheck</span>: <span class="cs">"true"</span>   <span class="cc"># only targets pods with chaos annotation</span>
+
+  <span class="cc"># Chaos Service Account with RBAC to delete pods</span>
+  <span class="cn">chaosServiceAccount</span>: <span class="cs">litmus-admin</span>
+
+  <span class="cn">experiments</span>:
+  - <span class="cn">name</span>: <span class="cs">pod-delete</span>
+    <span class="cn">spec</span>:
+      <span class="cn">components</span>:
+        <span class="cn">env</span>:
+        - <span class="cn">name</span>: <span class="cs">TOTAL_CHAOS_DURATION</span>
+          <span class="cn">value</span>: <span class="cs">"60"</span>     <span class="cc"># seconds the experiment runs</span>
+        - <span class="cn">name</span>: <span class="cs">CHAOS_INTERVAL</span>
+          <span class="cn">value</span>: <span class="cs">"15"</span>     <span class="cc"># kill a pod every 15 seconds</span>
+        - <span class="cn">name</span>: <span class="cs">FORCE</span>
+          <span class="cn">value</span>: <span class="cs">"false"</span>  <span class="cc"># graceful termination — use true only to simulate OOM kill</span>
+        - <span class="cn">name</span>: <span class="cs">PODS_AFFECTED_PERC</span>
+          <span class="cn">value</span>: <span class="cs">"33"</span>     <span class="cc"># affect max 33% of matching pods at once</span>
+
+      <span class="cn">probes</span>:
+      <span class="cc">  # HTTP probe: verify the service endpoint stays healthy</span>
+      - <span class="cn">name</span>: <span class="cs">payment-api-health</span>
+        <span class="cn">type</span>: <span class="cs">httpProbe</span>
+        <span class="cn">mode</span>: <span class="cs">Continuous</span>
+        <span class="cn">runProperties</span>:
+          <span class="cn">probeTimeout</span>: <span class="cv">5000</span>
+          <span class="cn">interval</span>: <span class="cv">5</span>
+          <span class="cn">retry</span>: <span class="cv">2</span>
+          <span class="cn">stopOnFailure</span>: <span class="cs">true</span>   <span class="cc"># abort experiment if probe fails — blast radius control</span>
+        <span class="cn">httpProbe/inputs</span>:
+          <span class="cn">url</span>: <span class="cs">"http://payment-api.production.svc.cluster.local/healthz"</span>
+          <span class="cn">insecureSkipVerify</span>: <span class="cs">false</span>
+          <span class="cn">method</span>:
+            <span class="cn">get</span>:
+              <span class="cn">criteria</span>: <span class="cs">==</span>
+              <span class="cn">responseCode</span>: <span class="cs">"200"</span>
+
+      <span class="cc">  # Prometheus probe: verify error rate stays below SLO</span>
+      - <span class="cn">name</span>: <span class="cs">error-rate-slo</span>
+        <span class="cn">type</span>: <span class="cs">promProbe</span>
+        <span class="cn">mode</span>: <span class="cs">Continuous</span>
+        <span class="cn">runProperties</span>:
+          <span class="cn">probeTimeout</span>: <span class="cv">10000</span>
+          <span class="cn">interval</span>: <span class="cv">10</span>
+          <span class="cn">retry</span>: <span class="cv">1</span>
+          <span class="cn">stopOnFailure</span>: <span class="cs">true</span>
+        <span class="cn">promProbe/inputs</span>:
+          <span class="cn">endpoint</span>: <span class="cs">"http://prometheus.monitoring.svc.cluster.local:9090"</span>
+          <span class="cn">query</span>: |
+            <span class="cs">sum(rate(http_requests_total{job="payment-api",status=~"5.."}[2m]))</span>
+            <span class="cs">/ sum(rate(http_requests_total{job="payment-api"}[2m])) * 100</span>
+          <span class="cn">comparator</span>:
+            <span class="cn">criteria</span>: <span class="cs">"&lt;="</span>
+            <span class="cn">value</span>: <span class="cs">"1.0"</span>    <span class="cc"># SLO: error rate must stay below 1%</span></pre>
+      </div>
+
+      <div class="callout info"><strong>The annotation requirement:</strong> Notice <code>annotationCheck: "true"</code> — LitmusChaos will only target pods that have the annotation <code>litmuschaos.io/chaos: "true"</code> on their parent Deployment. This is a safety feature. Only explicitly annotated workloads are eligible for chaos experiments. Start by annotating only your staging deployments.</div>
+
+      <h2>4. Network Latency Injection</h2>
+
+      <p>Pod-kill experiments are table stakes. The more interesting experiments inject network faults that simulate real-world cloud networking issues: packet loss, latency spikes, bandwidth throttling. LitmusChaos's <code>pod-network-latency</code> experiment uses <code>tc netem</code> under the hood, running in a privileged init container to manipulate the pod's network namespace.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — network-latency-engine.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">litmuschaos.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">ChaosEngine</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-network-latency</span>
+  <span class="cn">namespace</span>: <span class="cs">production</span>
+<span class="cn">spec</span>:
+  <span class="cn">appinfo</span>:
+    <span class="cn">appns</span>: <span class="cs">production</span>
+    <span class="cn">applabel</span>: <span class="cs">"app=order-service"</span>
+    <span class="cn">appkind</span>: <span class="cs">deployment</span>
+  <span class="cn">engineState</span>: <span class="cs">"active"</span>
+  <span class="cn">chaosServiceAccount</span>: <span class="cs">litmus-admin</span>
+  <span class="cn">experiments</span>:
+  - <span class="cn">name</span>: <span class="cs">pod-network-latency</span>
+    <span class="cn">spec</span>:
+      <span class="cn">components</span>:
+        <span class="cn">env</span>:
+        - <span class="cn">name</span>: <span class="cs">TOTAL_CHAOS_DURATION</span>
+          <span class="cn">value</span>: <span class="cs">"120"</span>
+        - <span class="cn">name</span>: <span class="cs">NETWORK_LATENCY</span>
+          <span class="cn">value</span>: <span class="cs">"2000"</span>      <span class="cc"># 2000ms added latency — simulates degraded network</span>
+        - <span class="cn">name</span>: <span class="cs">JITTER</span>
+          <span class="cn">value</span>: <span class="cs">"200"</span>       <span class="cc"># +/- 200ms jitter</span>
+        - <span class="cn">name</span>: <span class="cs">DESTINATION_IPS</span>
+          <span class="cn">value</span>: <span class="cs">"10.0.5.20"</span>  <span class="cc"># target only the payment-gateway IP — not all traffic</span>
+        - <span class="cn">name</span>: <span class="cs">DESTINATION_HOSTS</span>
+          <span class="cn">value</span>: <span class="cs">"payment-gateway.production.svc.cluster.local"</span>
+        - <span class="cn">name</span>: <span class="cs">CONTAINER_RUNTIME</span>
+          <span class="cn">value</span>: <span class="cs">"containerd"</span>
+        - <span class="cn">name</span>: <span class="cs">SOCKET_PATH</span>
+          <span class="cn">value</span>: <span class="cs">"/run/containerd/containerd.sock"</span>
+        - <span class="cn">name</span>: <span class="cs">PODS_AFFECTED_PERC</span>
+          <span class="cn">value</span>: <span class="cs">"50"</span>       <span class="cc"># inject into 50% of matching pods</span></pre>
+      </div>
+
+      <p>This experiment answers a critical question: "What happens to our order-service when the payment-gateway has a 2-second latency spike?" Does order-service time out gracefully? Does it queue requests? Does it cascade? Does the circuit breaker trip? You find out now, not during a real payment provider degradation event.</p>
+
+      <h2>5. CPU Hog and Node Drain</h2>
+
+      <p>The <code>pod-cpu-hog</code> experiment consumes CPU within target pods using a stress-ng process injected as a sidecar. This validates your HPA response time — does the horizontal pod autoscaler kick in before your latency SLO is breached? Typical HPA polling is every 15 seconds with a 3-minute stabilization window, which means you could have 3+ minutes of elevated CPU before scale-out helps. If your SLO is 200ms p99 and CPU saturation pushes you to 500ms within 30 seconds, you have a problem.</p>
+
+      <p>The <code>node-drain</code> experiment cordons a node and evicts all pods, simulating a node failure or a cloud provider maintenance event. This is the most important experiment for verifying PodDisruptionBudgets. If you have a 3-replica Deployment with a PDB requiring <code>minAvailable: 2</code>, does the drain actually respect that? Does your cluster have enough spare capacity to reschedule? Run this in staging regularly — I've seen teams discover their staging cluster was exactly at capacity and a node drain would have left services completely offline.</p>
+
+      <h2>6. Integrating Chaos into CI/CD</h2>
+
+      <p>Manual chaos experiments are valuable for GameDays, but the real value comes from automated chaos in your CD pipeline. The idea: after deploying to staging and running your integration test suite, run a short chaos experiment automatically and verify steady-state is maintained. If the experiment fails (probes breach), block the promotion to production.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — chaos-ci-step.yaml</span>
+        <pre><span class="cc"># GitHub Actions step — runs after integration tests pass in staging</span>
+- <span class="cn">name</span>: <span class="cs">Run Chaos Experiment</span>
+  <span class="cn">run</span>: |
+    <span class="cc"># Apply the ChaosEngine for a 60s pod-delete experiment</span>
+    kubectl apply -f chaos/pod-delete-engine.yaml
+
+    <span class="cc"># Wait for experiment to complete (poll ChaosResult)</span>
+    TIMEOUT=180
+    ELAPSED=0
+    while [ $ELAPSED -lt $TIMEOUT ]; do
+      VERDICT=$(kubectl get chaosresult payment-api-pod-kill-pod-delete \
+        -n production \
+        -o jsonpath='{.status.experimentStatus.verdict}')
+
+      if [ "$VERDICT" = "Pass" ]; then
+        echo "Chaos experiment passed — system is resilient"
+        kubectl delete -f chaos/pod-delete-engine.yaml
+        exit 0
+      elif [ "$VERDICT" = "Fail" ]; then
+        echo "CHAOS EXPERIMENT FAILED — blocking promotion to production"
+        kubectl delete -f chaos/pod-delete-engine.yaml
+        exit 1
+      fi
+
+      echo "Experiment running... verdict: $VERDICT"
+      sleep 10
+      ELAPSED=$((ELAPSED + 10))
+    done
+
+    echo "Chaos experiment timed out"
+    kubectl delete -f chaos/pod-delete-engine.yaml
+    exit 1</pre>
+      </div>
+
+      <h2>7. Observability During Chaos: Prometheus Queries</h2>
+
+      <p>During a chaos experiment, you need to watch three things in real time: error rate, latency percentiles, and pod readiness. Pin these queries in a Grafana dashboard dedicated to chaos experiments.</p>
+
+      <div class="code-block">
+        <span class="code-lang">promql — chaos-dashboard-queries.txt</span>
+        <pre><span class="cc"># 1. HTTP Error Rate — should stay below 1% during pod-kill</span>
+<span class="cs">sum(rate(http_requests_total{namespace="production",status=~"5.."}[1m]))</span>
+<span class="cs">/ sum(rate(http_requests_total{namespace="production"}[1m])) * 100</span>
+
+<span class="cc"># 2. p99 Latency — watching for latency spikes during experiment</span>
+<span class="cs">histogram_quantile(0.99,</span>
+<span class="cs">  sum(rate(http_request_duration_seconds_bucket{namespace="production"}[2m])) by (le, job)</span>
+<span class="cs">)</span>
+
+<span class="cc"># 3. Pod Ready Count — should recover to target replica count within 60s</span>
+<span class="cs">sum(kube_pod_status_ready{namespace="production", condition="true"}) by (pod)</span>
+
+<span class="cc"># 4. HPA desired vs current replicas — are we autoscaling correctly?</span>
+<span class="cs">kube_horizontalpodautoscaler_status_desired_replicas{namespace="production"}</span>
+<span class="cs">vs</span>
+<span class="cs">kube_horizontalpodautoscaler_status_current_replicas{namespace="production"}</span>
+
+<span class="cc"># 5. Chaos experiment duration marker — use annotations in Grafana</span>
+<span class="cc"># Tag your Grafana dashboard with a time-range annotation when ChaosEngine status = active</span>
+<span class="cs">kube_customresource_chaos_engine_status{engineState="active"}</span></pre>
+      </div>
+
+      <div class="callout tip"><strong>Grafana annotations for chaos:</strong> Create a Grafana annotation data source backed by the LitmusChaos webhook. When a ChaosEngine goes active, post a Grafana annotation to your dashboard. This draws a vertical line on all your time-series graphs marking the exact start and end of the experiment — invaluable when reviewing whether the system recovered fast enough.</div>
+
+      <h2>8. Building a Chaos Runbook</h2>
+
+      <p>Every experiment needs a documented runbook before it runs. The runbook template I use:</p>
+
+      <ul>
+        <li><strong>Experiment ID:</strong> payment-api-pod-kill-v3</li>
+        <li><strong>Date / Owner:</strong> who ran it and when</li>
+        <li><strong>Steady State Definition:</strong> concrete metric values with Prometheus queries</li>
+        <li><strong>Hypothesis:</strong> one sentence, falsifiable</li>
+        <li><strong>Blast Radius:</strong> what can break (and what cannot)</li>
+        <li><strong>Abort Criteria:</strong> probe conditions that will stop the experiment</li>
+        <li><strong>Rollback Steps:</strong> if something goes wrong, how do you restore immediately</li>
+        <li><strong>Observations:</strong> fill in post-experiment — what actually happened</li>
+        <li><strong>Follow-Up Actions:</strong> if hypothesis was disproved, what gets fixed</li>
+      </ul>
+
+      <p>Chaos engineering without documentation is just vandalism. The learning comes from the systematic recording of hypotheses, observations, and improvements. Track this in Confluence, Notion, or a Git repo — anywhere that accumulates institutional knowledge.</p>
+
+      <div class="callout warn"><strong>Never skip the abort criteria:</strong> The <code>stopOnFailure: true</code> setting on probes is your automated abort trigger. But also define a human abort procedure: who has the kubectl access to delete the ChaosEngine immediately, and what is the maximum duration anyone can wait before manually aborting if monitoring is unavailable. Production chaos experiments with no human oversight are reckless regardless of how good your probes are.</div>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">&copy; 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">&larr; all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

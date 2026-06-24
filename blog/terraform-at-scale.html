@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terraform at Scale: State Management, Modules & Multi-Account AWS Architecture | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Terraform</span>
+        <span class="blog-tag">AWS</span>
+        <span class="blog-tag">IaC</span>
+      </div>
+      <h1>Terraform at Scale: State Management, Modules &amp; Multi-Account AWS Architecture</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>June 2026</span><span class="dot-sep">·</span>
+        <span>10 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>Running Terraform for a single environment on a single AWS account is a solved problem. Running it across 20+ accounts, 6 environments, and 4 teams — without state collisions, blast-radius disasters, or module version chaos — is a completely different engineering challenge. I've done this migration twice now, and each time there were the same set of footguns. This post is the distillation of those hard lessons.</p>
+
+      <p>We'll cover remote state with proper locking, the workspace trap, module versioning discipline, PR-gated workflows with Atlantis, and how to actually vend AWS accounts at scale with Control Tower.</p>
+
+      <h2>1. Remote State with S3 + DynamoDB — Getting It Right</h2>
+
+      <p>The default <code>local</code> backend is fine for learning. In production, it means one engineer holds the state file in their <code>.terraform</code> directory and nobody else can run <code>plan</code> safely. Switch to S3 + DynamoDB on day one.</p>
+
+      <p>The S3 bucket configuration matters more than most guides admit. You need versioning (so you can roll back a corrupted state), encryption at rest (KMS, not AES256 — you want audit trails on key usage), and block all public access. The DynamoDB table only needs a single attribute: <code>LockID</code> as the partition key, String type. That's it — Terraform manages the rest.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — backend.tf</span>
+        <pre><span class="ck">terraform</span> {
+  <span class="cn">backend</span> <span class="cs">"s3"</span> {
+    <span class="cn">bucket</span>         = <span class="cs">"myorg-terraform-state-prod"</span>
+    <span class="cn">key</span>            = <span class="cs">"services/api-gateway/terraform.tfstate"</span>
+    <span class="cn">region</span>         = <span class="cs">"us-east-1"</span>
+    <span class="cn">encrypt</span>        = <span class="ck">true</span>
+    <span class="cn">kms_key_id</span>     = <span class="cs">"arn:aws:kms:us-east-1:123456789012:key/mrk-abc123"</span>
+    <span class="cn">dynamodb_table</span> = <span class="cs">"terraform-state-locks"</span>
+
+    <span class="cc"># Assume this role when accessing state — cross-account pattern</span>
+    <span class="cn">role_arn</span>       = <span class="cs">"arn:aws:iam::111111111111:role/TerraformStateRole"</span>
+    <span class="cn">session_name</span>   = <span class="cs">"TerraformCICD"</span>
+  }
+}</pre>
+      </div>
+
+      <p>Notice the <code>role_arn</code>. In a multi-account setup, your state bucket lives in a dedicated tooling account. Every other account assumes a role into that tooling account to read/write state. This gives you centralised audit logs via CloudTrail on the state bucket, and you can restrict which OIDC principals (GitHub Actions, Atlantis) can assume which roles.</p>
+
+      <p>Bootstrap the state infrastructure itself with a small, hand-managed Terraform root — or just do it once with the AWS CLI and never touch it again. The state for your state bucket should not be stored in itself.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — state-bootstrap/main.tf</span>
+        <pre><span class="cn">resource</span> <span class="cs">"aws_s3_bucket"</span> <span class="cs">"state"</span> {
+  <span class="cn">bucket</span> = <span class="cs">"myorg-terraform-state-prod"</span>
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_s3_bucket_versioning"</span> <span class="cs">"state"</span> {
+  <span class="cn">bucket</span> = <span class="cs">aws_s3_bucket.state.id</span>
+  <span class="cn">versioning_configuration</span> {
+    <span class="cn">status</span> = <span class="cs">"Enabled"</span>
+  }
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_s3_bucket_server_side_encryption_configuration"</span> <span class="cs">"state"</span> {
+  <span class="cn">bucket</span> = <span class="cs">aws_s3_bucket.state.id</span>
+  <span class="cn">rule</span> {
+    <span class="cn">apply_server_side_encryption_by_default</span> {
+      <span class="cn">sse_algorithm</span>     = <span class="cs">"aws:kms"</span>
+      <span class="cn">kms_master_key_id</span> = <span class="cs">aws_kms_key.state.arn</span>
+    }
+  }
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_dynamodb_table"</span> <span class="cs">"locks"</span> {
+  <span class="cn">name</span>         = <span class="cs">"terraform-state-locks"</span>
+  <span class="cn">billing_mode</span> = <span class="cs">"PAY_PER_REQUEST"</span>
+  <span class="cn">hash_key</span>     = <span class="cs">"LockID"</span>
+
+  <span class="cn">attribute</span> {
+    <span class="cn">name</span> = <span class="cs">"LockID"</span>
+    <span class="cn">type</span> = <span class="cs">"S"</span>
+  }
+
+  <span class="cn">point_in_time_recovery</span> {
+    <span class="cn">enabled</span> = <span class="ck">true</span>
+  }
+}</pre>
+      </div>
+
+      <div class="callout warn"><strong>State file = crown jewels.</strong> A corrupted or accidentally-deleted state file means Terraform no longer knows what it manages. Enable S3 Object Lock (Compliance mode) on the state bucket and keep a 90-day PITR window on the DynamoDB table. If you ever need to manually edit state, use <code>terraform state mv</code> and <code>terraform state rm</code> — never edit the JSON directly unless you're desperate and have a backup.</div>
+
+      <h2>2. Why You Should NOT Use Terraform Workspaces for Environments</h2>
+
+      <p>Workspaces sound perfect for environment management: one codebase, switch workspace, different state. I've seen this pattern cause production incidents at two companies. Here's why it's a trap.</p>
+
+      <p>The core problem: workspaces share the same configuration. If you run <code>terraform workspace select prod &amp;&amp; terraform apply</code> with a dev variable file by mistake, you've just applied dev config to production. The only safeguard is human discipline — and that's not a safeguard.</p>
+
+      <p>Second problem: workspace names are not enforced. Anyone can create a <code>terraform workspace new prd</code> (typo), apply there, and now you have two states claiming to manage overlapping resources. The collision is silent until something breaks.</p>
+
+      <p>The correct pattern is <strong>directory-based separation</strong> with shared modules:</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — recommended repo structure</span>
+        <pre><span class="cc"># Instead of workspaces, use directories per environment</span>
+infrastructure/
+├── modules/
+│   ├── eks-cluster/          <span class="cc"># versioned, reusable modules</span>
+│   ├── rds-postgres/
+│   └── vpc-standard/
+├── environments/
+│   ├── dev/
+│   │   ├── backend.tf        <span class="cc"># points to dev state key</span>
+│   │   ├── main.tf
+│   │   └── terraform.tfvars  <span class="cc"># dev-specific values</span>
+│   ├── staging/
+│   │   ├── backend.tf        <span class="cc"># points to staging state key</span>
+│   │   ├── main.tf
+│   │   └── terraform.tfvars
+│   └── prod/
+│       ├── backend.tf        <span class="cc"># points to prod state key</span>
+│       ├── main.tf
+│       └── terraform.tfvars
+└── account-vending/          <span class="cc"># Control Tower customizations</span></pre>
+      </div>
+
+      <p>Each environment directory has its own backend config pointing to a different S3 key and different DynamoDB lock. You cannot accidentally cross environments because the state is structurally separated. CI/CD only has permission to apply to the environment matching the branch or PR label.</p>
+
+      <h2>3. Module Versioning with a Private Registry</h2>
+
+      <p>Public modules from the Terraform Registry are fine for prototyping. In production you want a private registry so you control the module surface area, force internal security standards, and don't get surprised by upstream breaking changes.</p>
+
+      <p>The simplest private registry is a Git tag convention on a monorepo or module repo. Terraform supports the <code>git::https://</code> source with <code>?ref=</code> for tags. For a proper registry UI and semantic versioning enforcement, use Terraform Cloud/Enterprise or Spacelift. For a self-hosted option, Gitea with the module registry plugin works well.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — environments/prod/main.tf</span>
+        <pre><span class="ck">module</span> <span class="cs">"vpc"</span> {
+  <span class="cn">source</span>  = <span class="cs">"git::https://github.com/myorg/terraform-modules.git//modules/vpc-standard?ref=v3.2.1"</span>
+
+  <span class="cn">cidr_block</span>           = <span class="cs">"10.10.0.0/16"</span>
+  <span class="cn">availability_zones</span>   = <span class="cs">["us-east-1a", "us-east-1b", "us-east-1c"]</span>
+  <span class="cn">enable_nat_gateway</span>   = <span class="ck">true</span>
+  <span class="cn">single_nat_gateway</span>   = <span class="ck">false</span>  <span class="cc"># prod: one per AZ for HA</span>
+}
+
+<span class="ck">module</span> <span class="cs">"eks"</span> {
+  <span class="cn">source</span>  = <span class="cs">"git::https://github.com/myorg/terraform-modules.git//modules/eks-cluster?ref=v5.1.0"</span>
+
+  <span class="cn">cluster_name</span>    = <span class="cs">"prod-us-east-1"</span>
+  <span class="cn">cluster_version</span> = <span class="cs">"1.30"</span>
+  <span class="cn">vpc_id</span>          = <span class="cs">module.vpc.vpc_id</span>
+  <span class="cn">subnet_ids</span>      = <span class="cs">module.vpc.private_subnet_ids</span>
+
+  <span class="cn">node_groups</span> = {
+    <span class="cn">general</span> = {
+      <span class="cn">instance_types</span> = <span class="cs">["m6i.xlarge", "m6a.xlarge"]</span>
+      <span class="cn">min_size</span>       = <span class="cv">3</span>
+      <span class="cn">max_size</span>       = <span class="cv">20</span>
+      <span class="cn">desired_size</span>   = <span class="cv">6</span>
+    }
+  }
+}</pre>
+      </div>
+
+      <p>Pin modules to exact tags in production — never to a branch. Create a <code>CODEOWNERS</code> file for the modules directory so any version bump requires review from the platform team. Run <code>terraform init -upgrade</code> only intentionally, not as part of routine CI.</p>
+
+      <div class="callout tip"><strong>Module design rule:</strong> A module should manage one logical unit of infrastructure. If your module has more than ~5 resources, ask whether it should be split. The worst modules I've seen try to vend an entire application stack — VPC, EKS, RDS, Route53, ACM — in one module. When something breaks during <code>plan</code>, you have no idea where to look.</div>
+
+      <h2>4. Atlantis: PR-Based Plan and Apply</h2>
+
+      <p>Running <code>terraform apply</code> from a developer's laptop is how you get state drift, unreviewed changes, and no audit trail. Atlantis solves this by hooking into your VCS: it runs <code>terraform plan</code> on every PR and posts the output as a PR comment. Apply only happens via a comment on a merged PR, in a locked workflow.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — atlantis.yaml (repo root)</span>
+        <pre><span class="cn">version</span>: <span class="cv">3</span>
+<span class="cn">automerge</span>: <span class="ck">false</span>
+<span class="cn">delete_source_branch_on_merge</span>: <span class="ck">true</span>
+
+<span class="cn">projects</span>:
+  - <span class="cn">name</span>: <span class="cs">prod-vpc</span>
+    <span class="cn">dir</span>: <span class="cs">environments/prod</span>
+    <span class="cn">workspace</span>: <span class="cs">default</span>
+    <span class="cn">terraform_version</span>: <span class="cs">v1.8.5</span>
+    <span class="cn">autoplan</span>:
+      <span class="cn">when_modified</span>:
+        - <span class="cs">"**/*.tf"</span>
+        - <span class="cs">"**/*.tfvars"</span>
+        - <span class="cs">"../../modules/**/*.tf"</span>  <span class="cc"># replan if shared module changes</span>
+      <span class="cn">enabled</span>: <span class="ck">true</span>
+    <span class="cn">apply_requirements</span>:
+      - <span class="cs">mergeable</span>      <span class="cc"># PR must be approved and all checks green</span>
+      - <span class="cs">approved</span>       <span class="cc"># at least one approval required</span>
+    <span class="cn">workflow</span>: <span class="cs">custom-prod</span>
+
+<span class="cn">workflows</span>:
+  <span class="cn">custom-prod</span>:
+    <span class="cn">plan</span>:
+      <span class="cn">steps</span>:
+        - <span class="cn">env</span>:
+            <span class="cn">name</span>: <span class="cs">AWS_ROLE_ARN</span>
+            <span class="cn">value</span>: <span class="cs">arn:aws:iam::999999999999:role/AtlantisProdRole</span>
+        - <span class="cs">init</span>
+        - <span class="cn">plan</span>:
+            <span class="cn">extra_args</span>: [<span class="cs">"-var-file=terraform.tfvars"</span>]
+    <span class="cn">apply</span>:
+      <span class="cn">steps</span>:
+        - <span class="cs">apply</span></pre>
+      </div>
+
+      <p>Atlantis should run in its own namespace in your EKS cluster with an IRSA role that has tightly scoped permissions. Never give Atlantis AdministratorAccess — define an IAM policy with only what your Terraform code actually touches, and audit it quarterly. Use the <code>--repo-allowlist</code> flag to restrict which repos can trigger it.</p>
+
+      <h2>5. Provider Aliasing for Multi-Account Operations</h2>
+
+      <p>Sometimes a single Terraform root needs to create resources in multiple AWS accounts — for example, creating a Route53 record in the shared services account while deploying an ALB in the workload account. Provider aliases handle this cleanly.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — providers.tf</span>
+        <pre><span class="ck">provider</span> <span class="cs">"aws"</span> {
+  <span class="cn">region</span> = <span class="cs">"us-east-1"</span>
+  <span class="cc"># Default provider — workload account</span>
+  <span class="cn">assume_role</span> {
+    <span class="cn">role_arn</span> = <span class="cs">"arn:aws:iam::${var.workload_account_id}:role/TerraformRole"</span>
+  }
+}
+
+<span class="ck">provider</span> <span class="cs">"aws"</span> {
+  <span class="cn">alias</span>  = <span class="cs">"dns"</span>
+  <span class="cn">region</span> = <span class="cs">"us-east-1"</span>
+  <span class="cc"># Alias provider — shared DNS account</span>
+  <span class="cn">assume_role</span> {
+    <span class="cn">role_arn</span> = <span class="cs">"arn:aws:iam::${var.dns_account_id}:role/TerraformDNSRole"</span>
+  }
+}
+
+<span class="cc"># Use in resource:</span>
+<span class="cn">resource</span> <span class="cs">"aws_route53_record"</span> <span class="cs">"api"</span> {
+  <span class="cn">provider</span> = <span class="cs">aws.dns</span>   <span class="cc"># targets the DNS account</span>
+  <span class="cn">zone_id</span>  = <span class="cs">var.hosted_zone_id</span>
+  <span class="cn">name</span>     = <span class="cs">"api.myorg.com"</span>
+  <span class="cn">type</span>     = <span class="cs">"A"</span>
+  <span class="cn">alias</span> {
+    <span class="cn">name</span>                   = <span class="cs">aws_lb.api.dns_name</span>
+    <span class="cn">zone_id</span>                = <span class="cs">aws_lb.api.zone_id</span>
+    <span class="cn">evaluate_target_health</span> = <span class="ck">true</span>
+  }
+}</pre>
+      </div>
+
+      <h2>6. Handling Sensitive Outputs</h2>
+
+      <p>Marking an output as <code>sensitive = true</code> prevents it from appearing in plan/apply output, but it does NOT encrypt it in state. Anyone with read access to the state bucket can see it. The actual solution is to not put secrets into Terraform state at all.</p>
+
+      <p>Generate secrets outside Terraform (with AWS Secrets Manager, or a <code>random_password</code> resource that writes directly to Secrets Manager), and reference them by ARN rather than by value. For database passwords: create the password in Secrets Manager, pass the ARN to your RDS module, RDS reads it. Terraform never holds the plaintext.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — secrets pattern</span>
+        <pre><span class="cn">resource</span> <span class="cs">"random_password"</span> <span class="cs">"db"</span> {
+  <span class="cn">length</span>  = <span class="cv">32</span>
+  <span class="cn">special</span> = <span class="ck">true</span>
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_secretsmanager_secret"</span> <span class="cs">"db_password"</span> {
+  <span class="cn">name</span>                    = <span class="cs">"/prod/rds/api-db/password"</span>
+  <span class="cn">recovery_window_in_days</span> = <span class="cv">7</span>
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_secretsmanager_secret_version"</span> <span class="cs">"db_password"</span> {
+  <span class="cn">secret_id</span>     = <span class="cs">aws_secretsmanager_secret.db_password.id</span>
+  <span class="cn">secret_string</span> = <span class="cs">random_password.db.result</span>  <span class="cc"># stored in state — but encrypted at rest by KMS</span>
+}
+
+<span class="cn">resource</span> <span class="cs">"aws_db_instance"</span> <span class="cs">"api"</span> {
+  <span class="cn">manage_master_user_password</span>   = <span class="ck">true</span>  <span class="cc"># RDS-native rotation — best option</span>
+  <span class="cn">master_user_secret_kms_key_id</span> = <span class="cs">aws_kms_key.rds.arn</span>
+  <span class="cc"># password never touches Terraform state at all</span>
+}</pre>
+      </div>
+
+      <h2>7. Account Vending with AWS Control Tower</h2>
+
+      <p>At scale, manually creating AWS accounts is a bottleneck. Control Tower's Account Factory — combined with the Account Factory for Terraform (AFT) open-source module — lets you vend new AWS accounts by merging a PR. The workflow is: engineer creates a PR adding an account definition YAML, Atlantis picks it up, AFT provisions the account via the Control Tower API, applies baseline guardrails (SCPs, CloudTrail, Config), and registers it in the organization.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — aft-account-request/accounts/payments-prod.tf</span>
+        <pre><span class="ck">module</span> <span class="cs">"payments_prod"</span> {
+  <span class="cn">source</span> = <span class="cs">"./modules/aft-account-request"</span>
+
+  <span class="cn">control_tower_parameters</span> = {
+    <span class="cn">AccountEmail</span>              = <span class="cs">"aws-payments-prod@myorg.com"</span>
+    <span class="cn">AccountName</span>               = <span class="cs">"payments-prod"</span>
+    <span class="cn">ManagedOrganizationalUnit</span> = <span class="cs">"Production (ou-xxxx-yyyyyyy)"</span>
+    <span class="cn">SSOUserEmail</span>              = <span class="cs">"platform-team@myorg.com"</span>
+    <span class="cn">SSOUserFirstName</span>          = <span class="cs">"Platform"</span>
+    <span class="cn">SSOUserLastName</span>           = <span class="cs">"Team"</span>
+  }
+
+  <span class="cn">account_tags</span> = {
+    <span class="cn">Environment</span>  = <span class="cs">"Production"</span>
+    <span class="cn">CostCenter</span>   = <span class="cs">"payments"</span>
+    <span class="cn">DataClass</span>    = <span class="cs">"PCI-DSS"</span>
+    <span class="cn">ManagedBy</span>    = <span class="cs">"AFT"</span>
+  }
+
+  <span class="cn">change_management_parameters</span> = {
+    <span class="cn">change_requested_by</span> = <span class="cs">"platform-team"</span>
+    <span class="cn">change_reason</span>       = <span class="cs">"New payments production account"</span>
+  }
+
+  <span class="cn">account_customizations_name</span> = <span class="cs">"pci-workload"</span>  <span class="cc"># applies PCI baseline SCP + Config rules</span>
+}</pre>
+      </div>
+
+      <p>Each account gets a baseline customization that applies your organization's standard SCPs (deny root usage, deny disabling CloudTrail, require MFA for console), enables Config, enables Security Hub, and sets up centralized logging to the log archive account. All of this runs automatically — the requesting team just gets a new account that's already compliant.</p>
+
+      <div class="callout info"><strong>Drift detection:</strong> Run <code>terraform plan</code> in CI on a schedule (daily or weekly) across all environment roots, even when there are no code changes. AWS console changes, manual remediation, and upstream provider updates all cause drift. Catching it early — before the next apply — prevents configuration surprises. Atlantis supports drift detection mode natively since version 0.27.</div>
+
+      <h2>Summary</h2>
+
+      <p>Terraform at scale is not about clever HCL — it's about structure, access control, and discipline. Use S3+DynamoDB for state with KMS encryption. Separate environments by directory, not workspace. Pin module versions. Gate applies behind PR review with Atlantis. Use provider aliases for multi-account operations. Keep secrets out of state by using AWS Secrets Manager natively. And vend new accounts through AFT rather than manually clicking through the console.</p>
+
+      <p>The teams I've seen succeed at this are the ones who treat their Terraform repos like production software: code review, versioning, automated testing (Terratest or <code>terraform validate</code> + OPA), and runbooks for common break-glass scenarios.</p>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">← all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

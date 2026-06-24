@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>eBPF for DevOps Engineers: Kernel-Level Observability Without Code Changes | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">eBPF</span>
+        <span class="blog-tag">Observability</span>
+        <span class="blog-tag">Linux</span>
+      </div>
+      <h1>eBPF for DevOps Engineers: Kernel-Level Observability Without Code Changes</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>May 2026</span><span class="dot-sep">·</span>
+        <span>11 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>Every time I've joined a new production incident, the first 20 minutes are the same: <em>where is the problem?</em> Application metrics say latency spiked. The app team says their code hasn't changed. Infrastructure team says CPU and memory look fine. Network team is already drafting their "not us" reply. Meanwhile, something at the kernel level — a scheduler contention, a TCP retransmit storm, a syscall being blocked — is silently wrecking your p99 latency, and your existing observability stack can't see it.</p>
+
+      <p>eBPF is the technology that ends that conversation. This post is a practical introduction for DevOps engineers who want to actually use it, not just know it exists.</p>
+
+      <h2>1. What eBPF Actually Is</h2>
+
+      <p>eBPF (extended Berkeley Packet Filter) is a Linux kernel subsystem that lets you run sandboxed programs inside the kernel — without modifying kernel source code and without loading kernel modules. The kernel verifies the program before loading it: it checks for infinite loops, out-of-bounds memory access, and illegal operations. If the verifier approves it, the program is JIT-compiled and runs at near-native speed in kernel context.</p>
+
+      <p>The three core primitives you need to understand:</p>
+
+      <ul>
+        <li><strong>BPF Programs:</strong> Small C-like functions attached to kernel hook points (tracepoints, kprobes, XDP hooks, socket hooks). They run when the hook fires — on every syscall, every packet received, every scheduler event.</li>
+        <li><strong>BPF Maps:</strong> Key-value data structures shared between the eBPF program (running in kernel space) and a userspace process. This is how data flows out — your eBPF program writes per-PID latency data to a map, your userspace collector reads it and exports to Prometheus.</li>
+        <li><strong>BPF Hooks:</strong> The attachment points. Kprobes attach to any kernel function. Uprobes attach to userspace functions. Tracepoints are stable, predefined kernel instrumentation points. XDP hooks run at the network driver level, before the kernel networking stack even sees the packet.</li>
+      </ul>
+
+      <div class="callout info"><strong>Kernel version matters.</strong> Most production-useful eBPF features require Linux 4.18+. Full BTF (BPF Type Format) support — which enables CO-RE, allowing eBPF programs to run across kernel versions without recompilation — requires 5.4+. EKS defaults to Amazon Linux 2 with kernel 5.10 as of 2025. GKE uses 5.15+. Check your kernel version: <code>uname -r</code>.</div>
+
+      <h2>2. bpftrace: Live Kernel Tracing with One-Liners</h2>
+
+      <p><code>bpftrace</code> is the awk of eBPF — a high-level tracing language that compiles to eBPF programs. You write a one-liner, it attaches to a kernel hook, collects data, and prints results. No C, no compilation pipeline, no restart required.</p>
+
+      <p>Install it on any modern Linux: <code>apt install bpftrace</code> or <code>yum install bpftrace</code>. Then:</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — bpftrace one-liners</span>
+        <pre><span class="cc"># Trace all open() syscalls and show which files are being opened</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'tracepoint:syscalls:sys_enter_openat { printf("%s %s\n", comm, str(args->filename)); }'</span>
+
+<span class="cc"># Show disk I/O latency histogram per process (in microseconds)</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'kretprobe:blk_account_io_start { @[comm] = hist(nsecs); }'</span>
+
+<span class="cc"># Count TCP retransmits per destination IP — find flapping connections</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'kprobe:tcp_retransmit_skb { @[ntop(AF_INET, ((struct sock *)arg0)->__sk_common.skc_daddr)] = count(); }'</span>
+
+<span class="cc"># Trace which processes are calling execve (process creation) — good for detecting unexpected spawns</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'tracepoint:syscalls:sys_enter_execve { printf("%-6d %-16s %s\n", pid, comm, str(args->filename)); }'</span>
+
+<span class="cc"># Measure read() syscall latency histogram for a specific PID</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'tracepoint:syscalls:sys_enter_read /pid == 12345/ { @start[tid] = nsecs; }
+tracepoint:syscalls:sys_exit_read /pid == 12345 &amp;&amp; @start[tid]/ {
+  @latency_us = hist((nsecs - @start[tid]) / 1000);
+  delete(@start[tid]);
+}'</span>
+
+<span class="cc"># Track off-CPU time — why is my process sleeping and for how long?</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'tracepoint:sched:sched_switch {
+  if (args->prev_state == TASK_RUNNING &amp;&amp; args->prev_comm == "gunicorn") {
+    @offcpu[args->next_comm] = count();
+  }
+}'</span></pre>
+      </div>
+
+      <p>That last one is a production war story. A Python API was showing mysterious 50ms latency spikes. CPU was 20%, memory fine, no errors. The off-CPU bpftrace showed the process was sleeping waiting on <code>futex</code> calls — a locking contention issue in the ORM's connection pool. Took 10 minutes to diagnose with eBPF; the previous approach had been adding more logging and waiting for the next spike.</p>
+
+      <h2>3. Cilium: eBPF-Powered Kubernetes Networking</h2>
+
+      <p>Cilium replaces kube-proxy and the iptables-based networking stack with eBPF programs at the XDP and TC (Traffic Control) hook points. This gives you several concrete wins: lower latency (fewer hops through the networking stack), better throughput (XDP processes packets before kernel buffers), and native network policy enforcement at the eBPF layer.</p>
+
+      <p>The practical DevOps story with Cilium is Hubble — the observability layer built on top of Cilium's eBPF programs. Hubble gives you L7 visibility into every flow between pods with zero application changes.</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — Hubble CLI commands</span>
+        <pre><span class="cc"># Install Cilium + Hubble via Helm</span>
+<span class="ck">helm</span> install cilium cilium/cilium --version 1.16.0 \
+  --namespace kube-system \
+  --set hubble.relay.enabled=true \
+  --set hubble.ui.enabled=true \
+  --set kubeProxyReplacement=true \
+  --set k8sServiceHost=<span class="cs">10.0.0.1</span> \
+  --set k8sServicePort=<span class="cv">443</span>
+
+<span class="cc"># Forward Hubble relay port</span>
+<span class="ck">kubectl</span> port-forward -n kube-system svc/hubble-relay 4245:80
+
+<span class="cc"># Watch all HTTP traffic from the api namespace in real time</span>
+<span class="ck">hubble</span> observe --from-namespace api-prod --protocol http
+
+<span class="cc"># Find all flows that were dropped by network policy</span>
+<span class="ck">hubble</span> observe --verdict DROPPED --last 500
+
+<span class="cc"># Show TCP connections between specific pods (L4 flow)</span>
+<span class="ck">hubble</span> observe \
+  --from-pod api-prod/api-7d4b8f9 \
+  --to-pod payments-prod/payments-6c9d2a1 \
+  --protocol tcp
+
+<span class="cc"># Get per-pod HTTP error rates (L7 metrics)</span>
+<span class="ck">hubble</span> observe --type l7 --protocol http \
+  --http-status-code 5[0-9][0-9] --last 1000</pre>
+      </div>
+
+      <div class="callout tip"><strong>Cilium Network Policy vs Kubernetes NetworkPolicy:</strong> Cilium supports standard Kubernetes NetworkPolicy objects, but also has its own CiliumNetworkPolicy CRD that adds L7 filtering. You can write a policy that allows HTTP GET to <code>/api/v1/health</code> but denies POST — iptables-based solutions can't do this because they don't understand HTTP. For zero-trust microservices architectures, this is enormously powerful.</div>
+
+      <h2>4. Pixie: Full-Body Kubernetes Observability</h2>
+
+      <p>Pixie is an open-source Kubernetes observability platform from New Relic that uses eBPF to automatically capture request/response bodies, latency, errors, and resource usage — no instrumentation needed. It uses uprobes to intercept TLS at the userspace crypto library level (Go's <code>crypto/tls</code>, OpenSSL) so it can decrypt and inspect HTTPS traffic without needing the certificate private key.</p>
+
+      <p>Pixie uses PxL (Pixie Language), a Python-like query language for its data. You write scripts that run against the live cluster data:</p>
+
+      <div class="code-block">
+        <span class="code-lang">python — PxL: HTTP latency by service</span>
+        <pre><span class="cc"># PxL script: p50/p90/p99 HTTP latency per Kubernetes service</span>
+<span class="ck">import</span> px
+
+df = px.DataFrame(<span class="cs">'http_events'</span>, start_time=<span class="cs">'-5m'</span>)
+
+<span class="cc"># Annotate with pod and service info from Kubernetes metadata</span>
+df.pod = df.ctx[<span class="cs">'pod'</span>]
+df.service = df.ctx[<span class="cs">'service'</span>]
+df.namespace = df.ctx[<span class="cs">'namespace'</span>]
+
+<span class="cc"># Filter to 5xx errors only</span>
+errors = df[df.resp_status >= <span class="cv">500</span>]
+errors = errors.groupby([<span class="cs">'service'</span>, <span class="cs">'req_path'</span>]).agg(
+  error_count=(<span class="cs">'resp_status'</span>, px.count)
+)
+
+<span class="cc"># Latency percentiles across all requests</span>
+latency = df.groupby([<span class="cs">'service'</span>]).agg(
+  p50=(<span class="cs">'latency'</span>, px.quantiles(<span class="cv">0.5</span>)),
+  p90=(<span class="cs">'latency'</span>, px.quantiles(<span class="cv">0.9</span>)),
+  p99=(<span class="cs">'latency'</span>, px.quantiles(<span class="cv">0.99</span>)),
+  throughput=(<span class="cs">'latency'</span>, px.count)
+)
+
+px.display(latency, <span class="cs">'HTTP Latency by Service'</span>)
+px.display(errors, <span class="cs">'Error Count by Endpoint'</span>)</pre>
+      </div>
+
+      <p>The killer feature: Pixie captures this data continuously with a ~2% CPU overhead per node, stores it in-memory (ring buffer), and you can query it retroactively. When an incident happens at 3am, you can query "what was the HTTP traffic pattern 5 minutes before the alert fired" — without any pre-configured dashboards or having instrumented your application.</p>
+
+      <h2>5. Tetragon: Security Enforcement at Kernel Level</h2>
+
+      <p>Tetragon (from Isovalent, Cilium's parent project) uses eBPF for real-time security enforcement. Unlike traditional audit tools that log events after they happen, Tetragon can <em>block</em> a syscall in-kernel before it completes. This is the difference between detecting a container escape and preventing it.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — tetragon TracingPolicy: detect container escape attempts</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">cilium.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">TracingPolicy</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">detect-nsenter</span>
+<span class="cn">spec</span>:
+  <span class="cn">kprobes</span>:
+    - <span class="cn">call</span>: <span class="cs">"sys_setns"</span>   <span class="cc"># syscall used to switch namespaces (container escape technique)</span>
+      <span class="cn">syscall</span>: <span class="ck">true</span>
+      <span class="cn">args</span>:
+        - <span class="cn">index</span>: <span class="cv">0</span>
+          <span class="cn">type</span>: <span class="cs">"int"</span>    <span class="cc"># file descriptor of target namespace</span>
+      <span class="cn">selectors</span>:
+        - <span class="cn">matchProcessNs</span>:
+            - <span class="cn">namespace</span>: <span class="cs">"pid"</span>
+              <span class="cn">values</span>:
+                - <span class="cs">host_pid</span>   <span class="cc"># only alert if process is trying to join the host PID namespace</span>
+          <span class="cn">matchActions</span>:
+            - <span class="cn">action</span>: <span class="cs">Sigkill</span>   <span class="cc"># KILL the process immediately — not just log</span>
+
+<span class="cc">---</span>
+<span class="cc"># Also: alert on any write to /etc/passwd or /etc/shadow from a container</span>
+<span class="cn">apiVersion</span>: <span class="cs">cilium.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">TracingPolicy</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">protect-passwd</span>
+<span class="cn">spec</span>:
+  <span class="cn">kprobes</span>:
+    - <span class="cn">call</span>: <span class="cs">"fd_install"</span>
+      <span class="cn">syscall</span>: <span class="ck">false</span>
+      <span class="cn">args</span>:
+        - <span class="cn">index</span>: <span class="cv">1</span>
+          <span class="cn">type</span>: <span class="cs">"file"</span>
+      <span class="cn">selectors</span>:
+        - <span class="cn">matchArgs</span>:
+            - <span class="cn">index</span>: <span class="cv">1</span>
+              <span class="cn">operator</span>: <span class="cs">"Prefix"</span>
+              <span class="cn">values</span>:
+                - <span class="cs">"/etc/passwd"</span>
+                - <span class="cs">"/etc/shadow"</span>
+          <span class="cn">matchActions</span>:
+            - <span class="cn">action</span>: <span class="cs">Sigkill</span></pre>
+      </div>
+
+      <h2>6. CPU Profiling with eBPF</h2>
+
+      <p>Traditional CPU profilers require you to instrument the application or attach a profiler process that adds overhead. eBPF-based profiling uses perf events to sample the CPU stack at a configurable rate (typically 99 Hz) across all processes with minimal overhead — around 1% CPU.</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — eBPF CPU profiling and flame graphs</span>
+        <pre><span class="cc"># Profile all CPU usage across the entire system for 30 seconds at 99Hz</span>
+<span class="cc"># Uses bpftrace's perf event sampling</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'
+profile:hz:99 {
+  @[comm, kstack()] = count();
+}
+interval:s:30 {
+  exit();
+}'</span> > stacks.txt
+
+<span class="cc"># Or use perf (with eBPF backend on modern kernels)</span>
+<span class="ck">perf</span> record -F 99 -a -g --call-graph=dwarf -- sleep 30
+<span class="ck">perf</span> script | stackcollapse-perf.pl | flamegraph.pl > flame.svg
+
+<span class="cc"># Profile a specific container process (find its PID first)</span>
+<span class="ck">CONTAINER_PID</span>=$(docker inspect --format <span class="cs">'{{.State.Pid}}'</span> my-container)
+<span class="ck">bpftrace</span> -e <span class="cs">"profile:hz:99 /pid == ${CONTAINER_PID}/ { @[ustack()] = count(); }"</span> \
+  -c <span class="cs">"sleep 30"</span> | flamegraph.pl > container-flame.svg
+
+<span class="cc"># Find hottest kernel functions system-wide right now</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'profile:hz:99 { @[kstack] = count(); } interval:s:10 { print(@); clear(@); exit(); }'</span></pre>
+      </div>
+
+      <p>A practical use case: a Go service showed 40% CPU with no obvious cause. The flame graph from <code>bpftrace</code> showed 30% of CPU time in <code>runtime.mallocgc</code> — excessive heap allocation causing GC pressure. The fix was a <code>sync.Pool</code> for the hot allocation path, reducing CPU by 60%. Traditional APM showed "high CPU" but couldn't tell us why without adding pprof endpoints and coordinating a profiling window.</p>
+
+      <div class="callout warn"><strong>eBPF program limits in containers:</strong> Running eBPF tools inside Kubernetes pods requires <code>CAP_BPF</code> and <code>CAP_SYS_ADMIN</code> capabilities, and often host PID namespace access. For security reasons, run your observability agents (Pixie, Tetragon, Hubble) as DaemonSets with these privileges rather than giving arbitrary pods kernel access. Never run <code>privileged: true</code> on application containers just to enable eBPF tracing.</div>
+
+      <h2>7. Detecting Container Escapes with Syscall Tracing</h2>
+
+      <p>Container escapes typically follow a pattern: exploit a vulnerability to run code, then use kernel syscalls to break out of the namespace boundary. The most common techniques involve <code>ptrace</code> (to attach to a process outside the container), <code>mount</code> (to mount the host filesystem), or <code>open</code> with relative-to-root paths that cross namespace boundaries.</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — bpftrace: detect suspicious syscall patterns</span>
+        <pre><span class="cc"># Detect any container process trying to use ptrace (common escape vector)</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'
+tracepoint:syscalls:sys_enter_ptrace {
+  if (args->request == PTRACE_ATTACH || args->request == PTRACE_SEIZE) {
+    printf("ALERT: ptrace attach by PID %d (%s) targeting PID %d\n",
+           pid, comm, args->pid);
+  }
+}'</span>
+
+<span class="cc"># Detect unexpected mount syscalls from containers</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'
+tracepoint:syscalls:sys_enter_mount {
+  printf("mount: PID=%d COMM=%s source=%s target=%s\n",
+         pid, comm, str(args->dev_name), str(args->dir_name));
+}'</span>
+
+<span class="cc"># Alert on any process writing to /proc/sysrq-trigger (common escape technique)</span>
+<span class="ck">bpftrace</span> -e <span class="cs">'
+tracepoint:syscalls:sys_enter_openat {
+  if (str(args->filename) == "/proc/sysrq-trigger") {
+    printf("CRITICAL: %s (PID %d) opening sysrq-trigger\n", comm, pid);
+    signal("SIGKILL");
+  }
+}'</span></pre>
+      </div>
+
+      <h2>Summary</h2>
+
+      <p>eBPF has moved from a niche kernel hacking tool to the foundation of production observability. Cilium and Hubble give you L7 network visibility without a service mesh. Pixie gives you automatic, retroactive application observability. Tetragon gives you runtime security enforcement that actually blocks attacks rather than logging them. And bpftrace gives you an interactive kernel debugging tool that can answer questions in 60 seconds that previously required a multi-day instrumentation effort.</p>
+
+      <p>Start with bpftrace — it has zero setup cost and zero production risk. Then deploy Pixie in a dev or staging cluster to see what automatic observability looks like. That usually converts the remaining skeptics.</p>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">← all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

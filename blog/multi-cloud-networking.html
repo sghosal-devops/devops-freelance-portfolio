@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multi-Cloud Networking: Securely Connecting AWS, GCP & OCI | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">&larr; back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Multi-Cloud</span>
+        <span class="blog-tag">Networking</span>
+        <span class="blog-tag">AWS</span>
+        <span class="blog-tag">GCP</span>
+        <span class="blog-tag">OCI</span>
+      </div>
+      <h1>Multi-Cloud Networking: Securely Connecting AWS, GCP &amp; OCI</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">&middot;</span>
+        <span>March 2026</span><span class="dot-sep">&middot;</span>
+        <span>12 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>Multi-cloud networking is one of those things that looks straightforward on a whiteboard and becomes a nightmare in production. You've got three different control planes, three different concepts of "VPC", three different BGP implementations, and the moment you start connecting them, you discover that everyone assigned <code>10.0.0.0/8</code> to their internal workloads. This post is the guide I wish existed when I first had to connect AWS, GCP, and OCI for a financial services client running regulated workloads across all three clouds.</p>
+
+      <p>We'll cover the networking primitives each cloud offers, how to establish encrypted cross-cloud connectivity via IPSec BGP tunnels, DNS resolution across clouds, Private Link architectures, and a real CIDR planning strategy that won't bite you six months later. I'll include Terraform snippets throughout because clicking through three consoles to do this manually is a path to madness.</p>
+
+      <h2>1. Why Multi-Cloud Networking Is Actually Hard</h2>
+
+      <p>Let's be direct about the problems before solving them. Most blog posts gloss over these.</p>
+
+      <h3>Overlapping CIDRs</h3>
+      <p>AWS, GCP, and OCI each have defaults that overlap. AWS default VPC is <code>172.31.0.0/16</code>. GCP auto-mode networks use <code>10.128.0.0/9</code>. OCI defaults to <code>10.0.0.0/16</code>. The moment you try to peer or route between these, you get blackholes. VPC peering is non-transitive and doesn't support overlapping CIDRs at all — period. You must plan your CIDR allocations before you deploy a single resource.</p>
+
+      <h3>BGP Is Not Optional</h3>
+      <p>Static routes don't scale across three cloud providers with multiple regions and hundreds of subnets. You need BGP — specifically eBGP — to dynamically advertise routes between your transit infrastructure. AWS Transit Gateway supports BGP with custom ASNs. GCP Cloud Router uses BGP for all dynamic routing. OCI FastConnect terminates BGP sessions at DRGs (Dynamic Routing Gateways). If your team doesn't have BGP experience, this is the skill to acquire first.</p>
+
+      <h3>Latency Reality Check</h3>
+      <p>Cross-cloud traffic over the public internet (even with encryption) adds latency and jitter. Empirically, US-East AWS to US-East GCP over the public internet averages 8–15ms with spikes to 50ms+. Dedicated interconnects (AWS Direct Connect + GCP Dedicated Interconnect co-located at an Equinix facility) bring this down to 3–6ms consistently. OCI FastConnect from Ashburn to the same Equinix facility: 2–4ms. Plan your architecture knowing that synchronous cross-cloud RPC calls will be expensive.</p>
+
+      <div class="callout warn"><strong>The latency trap:</strong> Do not design synchronous microservice calls across cloud boundaries. Any service that calls a dependency in another cloud on the critical path will see tail latencies that will destroy your p99 SLO. Use async messaging (Kafka, Pub/Sub) across cloud boundaries and keep synchronous calls within a single cloud.</div>
+
+      <h2>2. CIDR Planning Strategy That Scales</h2>
+
+      <p>Before touching any Terraform, you need a CIDR allocation plan. Here's the scheme I use in production. Assign each cloud a non-overlapping /8 supernet from RFC 1918 space, then carve regions from that.</p>
+
+      <div class="code-block">
+        <span class="code-lang">text — cidr-allocation-plan.txt</span>
+        <pre><span class="cc"># Global CIDR Allocation</span>
+<span class="cc"># DO NOT deviate. All new VPCs must use these ranges.</span>
+
+<span class="cn">AWS</span>:     <span class="cv">10.0.0.0/8</span>
+  <span class="cn">us-east-1</span>:    <span class="cv">10.0.0.0/12</span>    <span class="cc"># 10.0.0.0 – 10.15.255.255</span>
+  <span class="cn">us-west-2</span>:    <span class="cv">10.16.0.0/12</span>   <span class="cc"># 10.16.0.0 – 10.31.255.255</span>
+  <span class="cn">eu-west-1</span>:    <span class="cv">10.32.0.0/12</span>
+  <span class="cn">ap-south-1</span>:   <span class="cv">10.48.0.0/12</span>
+
+<span class="cn">GCP</span>:     <span class="cv">172.16.0.0/12</span>
+  <span class="cn">us-central1</span>:  <span class="cv">172.16.0.0/14</span>
+  <span class="cn">us-east1</span>:     <span class="cv">172.20.0.0/14</span>
+  <span class="cn">europe-west1</span>: <span class="cv">172.24.0.0/14</span>
+
+<span class="cn">OCI</span>:     <span class="cv">192.168.0.0/16</span>
+  <span class="cn">us-ashburn-1</span>: <span class="cv">192.168.0.0/18</span>
+  <span class="cn">us-phoenix-1</span>: <span class="cv">192.168.64.0/18</span>
+  <span class="cn">eu-frankfurt</span>: <span class="cv">192.168.128.0/18</span>
+
+<span class="cc"># Transit / DMZ networks (shared services)</span>
+<span class="cn">Transit</span>: <span class="cv">100.64.0.0/10</span>   <span class="cc"># RFC 6598 carrier-grade NAT space — perfect for transit</span></pre>
+      </div>
+
+      <p>Within each cloud region's /12, carve /16 VPCs. Within each VPC, use /24 subnets per AZ per tier (app, data, mgmt). This gives you 16 VPCs per region, 256 subnets per VPC — more than you'll ever need. More importantly, every route table entry across all three clouds will be unambiguous.</p>
+
+      <h2>3. AWS Transit Gateway — The Hub-and-Spoke Core</h2>
+
+      <p>AWS Transit Gateway (TGW) is the cornerstone of your AWS networking. It's a regional hub that all VPCs attach to, eliminating the N*(N-1)/2 peering complexity. TGW also supports VPN attachments — this is how you'll connect to GCP and OCI.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — aws-tgw.tf</span>
+        <pre><span class="ck">resource</span> <span class="cs">"aws_ec2_transit_gateway"</span> <span class="cs">"main"</span> {
+  <span class="cn">description</span>                     = <span class="cs">"Main TGW — us-east-1"</span>
+  <span class="cn">amazon_side_asn</span>                 = <span class="cv">64512</span>
+  <span class="cn">auto_accept_shared_attachments</span>  = <span class="cs">"disable"</span>
+  <span class="cn">default_route_table_association</span> = <span class="cs">"disable"</span>  <span class="cc"># we manage route tables manually</span>
+  <span class="cn">default_route_table_propagation</span> = <span class="cs">"disable"</span>
+  <span class="cn">vpn_ecmp_support</span>                = <span class="cs">"enable"</span>   <span class="cc"># ECMP across VPN tunnels for HA</span>
+  <span class="cn">dns_support</span>                     = <span class="cs">"enable"</span>
+
+  <span class="cn">tags</span> = {
+    <span class="cn">Name</span> = <span class="cs">"tgw-use1-prod"</span>
+    <span class="cn">Env</span>  = <span class="cs">"prod"</span>
+  }
+}
+
+<span class="cc"># Separate route tables per segment — security isolation</span>
+<span class="ck">resource</span> <span class="cs">"aws_ec2_transit_gateway_route_table"</span> <span class="cs">"prod"</span> {
+  <span class="cn">transit_gateway_id</span> = <span class="cs">aws_ec2_transit_gateway.main.id</span>
+}
+
+<span class="ck">resource</span> <span class="cs">"aws_ec2_transit_gateway_route_table"</span> <span class="cs">"shared_services"</span> {
+  <span class="cn">transit_gateway_id</span> = <span class="cs">aws_ec2_transit_gateway.main.id</span>
+}
+
+<span class="cc"># VPC attachment — production app VPC</span>
+<span class="ck">resource</span> <span class="cs">"aws_ec2_transit_gateway_vpc_attachment"</span> <span class="cs">"app_vpc"</span> {
+  <span class="cn">subnet_ids</span>         = <span class="cs">var.app_vpc_transit_subnet_ids</span>
+  <span class="cn">transit_gateway_id</span> = <span class="cs">aws_ec2_transit_gateway.main.id</span>
+  <span class="cn">vpc_id</span>             = <span class="cs">var.app_vpc_id</span>
+
+  <span class="cn">transit_gateway_default_route_table_association</span> = <span class="cs">false</span>
+  <span class="cn">transit_gateway_default_route_table_propagation</span> = <span class="cs">false</span>
+
+  <span class="cn">tags</span> = { <span class="cn">Name</span> = <span class="cs">"attach-app-vpc"</span> }
+}
+
+<span class="cc"># Customer Gateway representing GCP VPN endpoint</span>
+<span class="ck">resource</span> <span class="cs">"aws_customer_gateway"</span> <span class="cs">"gcp"</span> {
+  <span class="cn">bgp_asn</span>    = <span class="cv">65000</span>   <span class="cc"># GCP Cloud Router ASN</span>
+  <span class="cn">ip_address</span> = <span class="cs">var.gcp_vpn_gateway_ip</span>
+  <span class="cn">type</span>       = <span class="cs">"ipsec.1"</span>
+
+  <span class="cn">tags</span> = { <span class="cn">Name</span> = <span class="cs">"cgw-gcp-use1"</span> }
+}
+
+<span class="cc"># VPN to GCP attached directly to Transit Gateway</span>
+<span class="ck">resource</span> <span class="cs">"aws_vpn_connection"</span> <span class="cs">"to_gcp"</span> {
+  <span class="cn">transit_gateway_id</span>  = <span class="cs">aws_ec2_transit_gateway.main.id</span>
+  <span class="cn">customer_gateway_id</span> = <span class="cs">aws_customer_gateway.gcp.id</span>
+  <span class="cn">type</span>                = <span class="cs">"ipsec.1"</span>
+  <span class="cn">static_routes_only</span>  = <span class="cs">false</span>  <span class="cc"># BGP — not static routes</span>
+
+  <span class="cn">tunnel1_ike_versions</span>              = <span class="cs">["ikev2"]</span>
+  <span class="cn">tunnel1_phase1_encryption_algorithms</span> = <span class="cs">["AES256"]</span>
+  <span class="cn">tunnel1_phase1_integrity_algorithms</span>  = <span class="cs">["SHA2-256"]</span>
+  <span class="cn">tunnel1_phase1_dh_group_numbers</span>      = <span class="cs">[14]</span>
+  <span class="cn">tunnel1_phase2_encryption_algorithms</span> = <span class="cs">["AES256"]</span>
+  <span class="cn">tunnel1_phase2_integrity_algorithms</span>  = <span class="cs">["SHA2-256"]</span>
+  <span class="cn">tunnel1_phase2_dh_group_numbers</span>      = <span class="cs">[14]</span>
+  <span class="cn">tunnel1_preshared_key</span>                = <span class="cs">var.vpn_psk_tunnel1</span>
+  <span class="cc"># tunnel2 mirrors tunnel1 — AWS VPN always creates two tunnels for HA</span>
+
+  <span class="cn">tags</span> = { <span class="cn">Name</span> = <span class="cs">"vpn-aws-gcp-use1"</span> }
+}
+
+<span class="cc"># Propagate GCP routes into the prod route table</span>
+<span class="ck">resource</span> <span class="cs">"aws_ec2_transit_gateway_route_table_propagation"</span> <span class="cs">"gcp_vpn"</span> {
+  <span class="cn">transit_gateway_attachment_id</span>  = <span class="cs">aws_vpn_connection.to_gcp.transit_gateway_attachment_id</span>
+  <span class="cn">transit_gateway_route_table_id</span> = <span class="cs">aws_ec2_transit_gateway_route_table.prod.id</span>
+}</pre>
+      </div>
+
+      <h2>4. GCP Side: HA VPN + Cloud Router</h2>
+
+      <p>GCP's HA VPN is the correct product here — not Classic VPN. HA VPN provides two public IPs and two tunnels, giving you 99.99% SLA. It requires BGP (via Cloud Router) — you cannot use static routes with HA VPN. This is actually a feature: it forces the correct architecture.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — gcp-vpn.tf</span>
+        <pre><span class="ck">resource</span> <span class="cs">"google_compute_ha_vpn_gateway"</span> <span class="cs">"to_aws"</span> {
+  <span class="cn">name</span>    = <span class="cs">"ha-vpn-to-aws"</span>
+  <span class="cn">network</span> = <span class="cs">google_compute_network.prod.id</span>
+  <span class="cn">region</span>  = <span class="cs">"us-east1"</span>
+  <span class="cc"># GCP automatically assigns 2 external IPs for HA</span>
+}
+
+<span class="ck">resource</span> <span class="cs">"google_compute_external_vpn_gateway"</span> <span class="cs">"aws_tgw"</span> {
+  <span class="cn">name</span>            = <span class="cs">"aws-tgw-endpoint"</span>
+  <span class="cn">redundancy_type</span> = <span class="cs">"FOUR_IPS_REDUNDANCY"</span>  <span class="cc"># 2 AWS TGW tunnels x 2 HA VPN interfaces</span>
+
+  <span class="cc"># AWS gives you 2 tunnel endpoints per VPN connection</span>
+  <span class="cn">interface</span> {
+    <span class="cn">id</span>         = <span class="cv">0</span>
+    <span class="cn">ip_address</span> = <span class="cs">var.aws_vpn_tunnel1_ip</span>
+  }
+  <span class="cn">interface</span> {
+    <span class="cn">id</span>         = <span class="cv">1</span>
+    <span class="cn">ip_address</span> = <span class="cs">var.aws_vpn_tunnel2_ip</span>
+  }
+}
+
+<span class="ck">resource</span> <span class="cs">"google_compute_router"</span> <span class="cs">"cloud_router"</span> {
+  <span class="cn">name</span>    = <span class="cs">"cr-use1-prod"</span>
+  <span class="cn">network</span> = <span class="cs">google_compute_network.prod.id</span>
+  <span class="cn">region</span>  = <span class="cs">"us-east1"</span>
+
+  <span class="cn">bgp</span> {
+    <span class="cn">asn</span>               = <span class="cv">65000</span>
+    <span class="cn">advertise_mode</span>    = <span class="cs">"CUSTOM"</span>
+    <span class="cn">advertised_groups</span> = <span class="cs">["ALL_SUBNETS"]</span>
+    <span class="cc"># Advertise GCP subnet routes to AWS via BGP</span>
+  }
+}
+
+<span class="ck">resource</span> <span class="cs">"google_compute_vpn_tunnel"</span> <span class="cs">"tunnel1"</span> {
+  <span class="cn">name</span>                            = <span class="cs">"vpn-to-aws-t1"</span>
+  <span class="cn">region</span>                          = <span class="cs">"us-east1"</span>
+  <span class="cn">vpn_gateway</span>                     = <span class="cs">google_compute_ha_vpn_gateway.to_aws.id</span>
+  <span class="cn">vpn_gateway_interface</span>           = <span class="cv">0</span>
+  <span class="cn">peer_external_gateway</span>           = <span class="cs">google_compute_external_vpn_gateway.aws_tgw.id</span>
+  <span class="cn">peer_external_gateway_interface</span> = <span class="cv">0</span>
+  <span class="cn">router</span>                          = <span class="cs">google_compute_router.cloud_router.id</span>
+  <span class="cn">shared_secret</span>                   = <span class="cs">var.vpn_psk_tunnel1</span>
+  <span class="cn">ike_version</span>                     = <span class="cv">2</span>
+}</pre>
+      </div>
+
+      <p>Once tunnels are up, verify BGP sessions on GCP side with <code>gcloud compute routers get-status cr-use1-prod --region us-east1</code>. You should see the AWS TGW's BGP peer in ESTABLISHED state and the AWS routes (10.0.0.0/12) appearing in the routing table.</p>
+
+      <div class="callout info"><strong>BGP ASN planning:</strong> Use private ASNs (64512–65534 per RFC 6996). AWS TGW default is 64512. Set GCP Cloud Router to 65000. Set OCI DRG to 65100. Never reuse the same ASN across clouds — BGP loop prevention will drop the routes silently and you'll spend hours debugging.</div>
+
+      <h2>5. OCI FastConnect — The Underrated Option</h2>
+
+      <p>OCI FastConnect is Oracle's dedicated interconnect product. At co-location facilities like Equinix DC6 (Ashburn), you can get a cross-connect to OCI at 1Gbps or 10Gbps. For AWS-to-OCI, the OCI-AWS interconnect (announced 2019, quietly excellent) gives you a private network path via a shared Equinix facility with sub-5ms latency between us-east-1 and us-ashburn-1.</p>
+
+      <p>For OCI-to-GCP connections that don't go through the dedicated interconnect, you'll use IPSec VPN from OCI's IPSec VPN service to GCP HA VPN. OCI uses a concept called CPE (Customer Premises Equipment) to represent the remote VPN endpoint — analogous to AWS's Customer Gateway.</p>
+
+      <h2>6. DNS Resolution Across Clouds</h2>
+
+      <p>Once you have network connectivity, the next headache is DNS. Each cloud has its own private DNS system:</p>
+      <ul>
+        <li><strong>AWS:</strong> Route 53 private hosted zones, resolver endpoints</li>
+        <li><strong>GCP:</strong> Cloud DNS private zones, DNS peering, DNS server policies</li>
+        <li><strong>OCI:</strong> Private DNS Views attached to VCNs</li>
+      </ul>
+
+      <p>The strategy that works in production: designate one cloud as the authoritative DNS hub (I use AWS Route 53), create forwarding rules in GCP and OCI to forward internal domain queries to Route 53 resolver endpoints in AWS. Each cloud's resolver forwards to AWS and gets back the correct RFC 1918 answer.</p>
+
+      <div class="code-block">
+        <span class="code-lang">hcl — route53-resolver.tf</span>
+        <pre><span class="cc"># Route 53 Resolver inbound endpoint — accepts DNS queries from GCP/OCI</span>
+<span class="ck">resource</span> <span class="cs">"aws_route53_resolver_endpoint"</span> <span class="cs">"inbound"</span> {
+  <span class="cn">name</span>      = <span class="cs">"r53-inbound-use1"</span>
+  <span class="cn">direction</span> = <span class="cs">"INBOUND"</span>
+
+  <span class="cn">security_group_ids</span> = [<span class="cs">aws_security_group.resolver.id</span>]
+
+  <span class="cn">ip_address</span> {
+    <span class="cn">subnet_id</span> = <span class="cs">var.resolver_subnet_az1</span>
+    <span class="cn">ip</span>        = <span class="cs">"10.0.1.10"</span>   <span class="cc"># static IP for easy GCP/OCI forwarding rules</span>
+  }
+  <span class="cn">ip_address</span> {
+    <span class="cn">subnet_id</span> = <span class="cs">var.resolver_subnet_az2</span>
+    <span class="cn">ip</span>        = <span class="cs">"10.0.2.10"</span>
+  }
+}
+
+<span class="cc"># GCP DNS Policy — forward internal.example.com queries to AWS resolver</span>
+<span class="cc"># (in google provider)</span>
+<span class="ck">resource</span> <span class="cs">"google_dns_policy"</span> <span class="cs">"to_aws"</span> {
+  <span class="cn">name</span>                      = <span class="cs">"forward-to-aws"</span>
+  <span class="cn">enable_inbound_forwarding</span> = <span class="cs">false</span>
+
+  <span class="cn">alternative_name_server_config</span> {
+    <span class="cn">target_name_servers</span> {
+      <span class="cn">ipv4_address</span> = <span class="cs">"10.0.1.10"</span>   <span class="cc"># AWS Route 53 inbound resolver</span>
+    }
+    <span class="cn">target_name_servers</span> {
+      <span class="cn">ipv4_address</span> = <span class="cs">"10.0.2.10"</span>
+    }
+  }
+
+  <span class="cn">networks</span> {
+    <span class="cn">network_url</span> = <span class="cs">google_compute_network.prod.id</span>
+  }
+}
+
+<span class="cc"># Private hosted zone visible across all VPCs via TGW</span>
+<span class="ck">resource</span> <span class="cs">"aws_route53_zone"</span> <span class="cs">"internal"</span> {
+  <span class="cn">name</span> = <span class="cs">"internal.example.com"</span>
+
+  <span class="cn">vpc</span> {
+    <span class="cn">vpc_id</span> = <span class="cs">var.app_vpc_id</span>
+  }
+}
+
+<span class="cc"># Security group allowing UDP/TCP 53 from cross-cloud CIDRs</span>
+<span class="ck">resource</span> <span class="cs">"aws_security_group"</span> <span class="cs">"resolver"</span> {
+  <span class="cn">name</span>   = <span class="cs">"r53-resolver-inbound"</span>
+  <span class="cn">vpc_id</span> = <span class="cs">var.resolver_vpc_id</span>
+
+  <span class="cn">ingress</span> {
+    <span class="cn">from_port</span>   = <span class="cv">53</span>
+    <span class="cn">to_port</span>     = <span class="cv">53</span>
+    <span class="cn">protocol</span>    = <span class="cs">"udp"</span>
+    <span class="cn">cidr_blocks</span> = [<span class="cs">"172.16.0.0/12"</span>, <span class="cs">"192.168.0.0/16"</span>]  <span class="cc"># GCP + OCI ranges</span>
+  }
+  <span class="cn">ingress</span> {
+    <span class="cn">from_port</span>   = <span class="cv">53</span>
+    <span class="cn">to_port</span>     = <span class="cv">53</span>
+    <span class="cn">protocol</span>    = <span class="cs">"tcp"</span>
+    <span class="cn">cidr_blocks</span> = [<span class="cs">"172.16.0.0/12"</span>, <span class="cs">"192.168.0.0/16"</span>]
+  }
+}</pre>
+      </div>
+
+      <h2>7. PrivateLink vs VPC Peering for Service Exposure</h2>
+
+      <p>Once you have network connectivity between clouds, you'll want to expose services selectively — not open the entire network. This is where the PrivateLink pattern shines over full VPC peering.</p>
+
+      <p><strong>VPC Peering problems at scale:</strong> It's transitive — a peered VPC can reach all subnets. You need careful NACLs and security groups to compensate. It also doesn't work with overlapping CIDRs (which you've hopefully solved with planning, but accidents happen). And it doesn't work across clouds — it's AWS-only.</p>
+
+      <p><strong>PrivateLink (AWS) / Private Service Connect (GCP) pattern:</strong> The service owner creates an NLB-backed endpoint service. Consumers create a VPC endpoint pointed at that service. Traffic flows through AWS's backbone, never touches the internet, and the consumer cannot reach anything except the specific service port. This is the right model for cross-account and cross-cloud service exposure.</p>
+
+      <p>For cross-cloud PrivateLink, the pattern is: expose an NLB in AWS via PrivateLink → consumers in GCP create a Private Service Connect endpoint via a PSC endpoint → traffic enters GCP's backbone to the Interconnect to AWS's backbone to the NLB. This gives you service-level granularity rather than network-level, which is exactly what a zero-trust architecture requires.</p>
+
+      <h2>8. Security Group / Firewall Rule Alignment</h2>
+
+      <p>Each cloud has its own firewall model. AWS uses Security Groups (stateful, instance-level) + NACLs (stateless, subnet-level). GCP uses VPC firewall rules (stateful, tag-based or service-account-based). OCI uses Security Lists (stateless) and NSGs (stateful). The mental model mismatch causes misconfigurations.</p>
+
+      <p>My recommendation: treat the inter-cloud traffic as you would internet traffic — restrict it tightly. Define a "transit security policy" document before writing a single firewall rule. The policy should specify: which services in Cloud A can reach which port/protocol in Cloud B. Implement that policy in each cloud's native firewall primitives. Never open <code>0.0.0.0/0</code> between clouds, even temporarily.</p>
+
+      <div class="callout warn"><strong>The "temporary" rule that stays forever:</strong> I have seen <code>allow all from 10.0.0.0/8</code> rules in production environments that were added "just for testing" three years prior. Cross-cloud firewall rules require the same change management process as production application deployments. Use Terraform with policy-as-code (OPA/Conftest) to enforce this automatically in CI.</div>
+
+      <h2>9. Realistic Latency Expectations</h2>
+
+      <p>To set expectations with your team and design correct timeout/retry policies:</p>
+      <ul>
+        <li><strong>AWS us-east-1 ↔ GCP us-east1 (same metro, internet):</strong> 8–20ms avg, p99 can spike to 80ms</li>
+        <li><strong>AWS us-east-1 ↔ GCP us-east1 (Equinix Interconnect):</strong> 3–6ms avg, p99 ~12ms</li>
+        <li><strong>AWS us-east-1 ↔ OCI us-ashburn-1 (OCI-AWS Interconnect):</strong> 2–4ms avg, p99 ~8ms</li>
+        <li><strong>GCP us-east1 ↔ OCI us-ashburn-1 (VPN over internet):</strong> 10–25ms avg</li>
+        <li><strong>Cross-region (any cloud):</strong> Add 50–80ms minimum for US-to-EU</li>
+      </ul>
+
+      <p>Design your HTTP clients with connection timeouts of 5s, read timeouts of 30s, and retry budgets of 3 attempts with exponential backoff starting at 100ms. Any tighter and you'll create cascading failures from transient network events.</p>
+
+      <h2>10. Monitoring Cross-Cloud Connectivity</h2>
+
+      <p>Don't wait for an outage to discover your VPN tunnel went down. Set up synthetic monitoring: a simple HTTP prober (Blackbox Exporter or custom Lambda) that calls endpoints across clouds every 30 seconds and reports success/failure + latency to a neutral monitoring system (use a third cloud for your monitoring if you're paranoid — and you should be).</p>
+
+      <p>For BGP-specific monitoring: AWS CloudWatch has <code>TunnelState</code> and <code>TunnelDataIn/Out</code> metrics per VPN connection. Alert on <code>TunnelState &lt; 1</code> (tunnel down) with a 2-minute evaluation window. GCP Cloud Monitoring similarly has VPN tunnel metrics. Set up alerts that page your on-call before users notice.</p>
+
+      <div class="callout tip"><strong>Document the runbook now, not after the incident:</strong> Write a runbook for "VPN tunnel between AWS and GCP is down" before you need it. Include: how to check BGP session state, how to restart the tunnel, who owns the OCI side, and the escalation path to each cloud's enterprise support. A multi-cloud outage at 2am is not the time to figure out which team owns the GCP Cloud Router.</div>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">&copy; 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">&larr; all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

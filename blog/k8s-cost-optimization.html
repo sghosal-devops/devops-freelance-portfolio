@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kubernetes Cost Optimization: HPA, VPA, KEDA &amp; Spot Instances | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">Kubernetes</span>
+        <span class="blog-tag">FinOps</span>
+        <span class="blog-tag">Cost</span>
+      </div>
+      <h1>Kubernetes Cost Optimization: HPA, VPA, KEDA &amp; Spot Instances</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>April 2026</span><span class="dot-sep">·</span>
+        <span>13 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>The first Kubernetes cost optimization engagement I did, the client was spending $180k/month on EKS. Four months later it was $74k/month — same workloads, same reliability SLAs, same team size. No magic, just systematic elimination of waste: right-sizing, autoscaling, Karpenter, and spot instances. This post is the exact playbook.</p>
+
+      <p>The most common mistakes I find: every pod is over-provisioned because teams are afraid to set tight limits, the cluster autoscaler is configured conservatively so nodes are half-empty, spot instances aren't used because of a 2019 horror story about a single instance type pool, and there's no visibility into what's actually costing money.</p>
+
+      <h2>1. VPA in Recommendation Mode First — Never Blind Resize</h2>
+
+      <p>Vertical Pod Autoscaler in <code>Off</code> or <code>Auto</code> mode without first understanding your workload's actual resource profile is how you cause OOMKills at 2am. The correct approach is a two-phase deployment: run VPA in recommendation-only mode for 2-4 weeks, collect data, review the recommendations, then apply them as static requests/limits updates.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — vpa-recommendation.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">autoscaling.k8s.io/v1</span>
+<span class="cn">kind</span>: <span class="cs">VerticalPodAutoscaler</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-vpa</span>
+  <span class="cn">namespace</span>: <span class="cs">api-prod</span>
+<span class="cn">spec</span>:
+  <span class="cn">targetRef</span>:
+    <span class="cn">apiVersion</span>: <span class="cs">"apps/v1"</span>
+    <span class="cn">kind</span>: <span class="cs">Deployment</span>
+    <span class="cn">name</span>: <span class="cs">api-server</span>
+  <span class="cn">updatePolicy</span>:
+    <span class="cn">updateMode</span>: <span class="cs">"Off"</span>   <span class="cc"># recommendation only, does NOT modify pods</span>
+  <span class="cn">resourcePolicy</span>:
+    <span class="cn">containerPolicies</span>:
+      - <span class="cn">containerName</span>: <span class="cs">api</span>
+        <span class="cn">minAllowed</span>:
+          <span class="cn">cpu</span>: <span class="cs">50m</span>
+          <span class="cn">memory</span>: <span class="cs">64Mi</span>
+        <span class="cn">maxAllowed</span>:
+          <span class="cn">cpu</span>: <span class="cs">4</span>
+          <span class="cn">memory</span>: <span class="cs">8Gi</span>
+        <span class="cn">controlledResources</span>: [<span class="cs">"cpu"</span>, <span class="cs">"memory"</span>]</pre>
+      </div>
+
+      <p>After 2 weeks, check the recommendation:</p>
+
+      <div class="code-block">
+        <span class="code-lang">bash — reading VPA recommendations</span>
+        <pre><span class="ck">kubectl</span> describe vpa api-vpa -n api-prod
+
+<span class="cc"># Output (abbreviated):</span>
+<span class="cc"># Recommendation:</span>
+<span class="cc">#   Container Recommendations:</span>
+<span class="cc">#     Container Name:  api</span>
+<span class="cc">#     Lower Bound:     cpu: 120m, memory: 256Mi</span>
+<span class="cc">#     Target:          cpu: 340m, memory: 512Mi  &lt;-- use this for requests</span>
+<span class="cc">#     Upper Bound:     cpu: 1200m, memory: 2Gi   &lt;-- use this for limits</span>
+<span class="cc">#     Uncapped Target: cpu: 340m, memory: 480Mi</span>
+
+<span class="cc"># Compare to what you currently have set:</span>
+<span class="ck">kubectl</span> get deployment api-server -n api-prod \
+  -o jsonpath=<span class="cs">'{.spec.template.spec.containers[0].resources}'</span>
+
+<span class="cc"># Common finding: teams set cpu: 2 requests where VPA recommends 340m</span>
+<span class="cc"># That's ~6x over-provisioning on CPU across every pod replica</span></pre>
+      </div>
+
+      <p>In that $180k engagement, VPA recommendations showed an average of 4x over-provisioning on CPU across all workloads. Applying the recommendations and removing the padding engineers had added "just in case" cut the compute bill by 35% before we touched anything else.</p>
+
+      <div class="callout warn"><strong>VPA and HPA conflict.</strong> Do NOT run VPA in <code>Auto</code> mode simultaneously with HPA scaling on CPU/memory. When VPA resizes a pod, it evicts and recreates it — which changes the denominator for HPA's target utilization calculation, causing HPA to scale out, which causes VPA to try to right-size again. Use HPA for scaling (replicas) and VPA for sizing (requests/limits), but only one of them targeting the same metric at a time. If using both, configure HPA to scale on custom metrics (like RPS) rather than CPU.</div>
+
+      <h2>2. HPA vs KEDA — Choosing the Right Scaler</h2>
+
+      <p>HPA is the right choice when: your workload correlates directly with CPU or memory (compute-bound services, batch processors), and your scaling metric is naturally captured by the Kubernetes metrics server.</p>
+
+      <p>KEDA is the right choice when: your workload should scale on external signals — queue depth, Kafka consumer lag, HTTP requests per second from an external metrics source (Prometheus, DataDog), a cron schedule, or zero (KEDA can scale to zero, HPA cannot). For worker processes consuming from SQS or RabbitMQ, KEDA is strictly better.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — KEDA ScaledObject: scale on SQS queue depth</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">keda.sh/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">ScaledObject</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">sqs-worker-scaler</span>
+  <span class="cn">namespace</span>: <span class="cs">workers</span>
+<span class="cn">spec</span>:
+  <span class="cn">scaleTargetRef</span>:
+    <span class="cn">name</span>: <span class="cs">sqs-worker</span>
+  <span class="cn">minReplicaCount</span>: <span class="cv">0</span>    <span class="cc"># scale to ZERO when queue is empty — huge cost saving</span>
+  <span class="cn">maxReplicaCount</span>: <span class="cv">50</span>
+  <span class="cn">cooldownPeriod</span>: <span class="cv">300</span>   <span class="cc"># wait 5min before scaling back to zero</span>
+  <span class="cn">pollingInterval</span>: <span class="cv">15</span>   <span class="cc"># check queue every 15 seconds</span>
+  <span class="cn">triggers</span>:
+    - <span class="cn">type</span>: <span class="cs">aws-sqs-queue</span>
+      <span class="cn">authenticationRef</span>:
+        <span class="cn">name</span>: <span class="cs">keda-aws-irsa</span>
+      <span class="cn">metadata</span>:
+        <span class="cn">queueURL</span>: <span class="cs">https://sqs.us-east-1.amazonaws.com/123456789/image-processing</span>
+        <span class="cn">queueLength</span>: <span class="cs">"5"</span>    <span class="cc"># target: 5 messages per worker pod</span>
+        <span class="cn">awsRegion</span>: <span class="cs">us-east-1</span>
+        <span class="cn">identityOwner</span>: <span class="cs">operator</span>   <span class="cc"># use KEDA's IRSA role, not pod's role</span></pre>
+      </div>
+
+      <p>A client had 10 always-on worker pods for an image processing pipeline. Peak load was during business hours (9am-6pm). Off-peak the queue was always empty. Switching to KEDA with scale-to-zero eliminated those 10 workers outside business hours — about 70% of the worker pool's monthly cost.</p>
+
+      <h2>3. Karpenter vs Cluster Autoscaler: Karpenter Wins</h2>
+
+      <p>Cluster Autoscaler (CAS) works on node groups. You define node groups in advance (m5.large spot, m5.xlarge on-demand, etc.) and CAS adds or removes nodes from those fixed groups. The problems: you must predict which instance types you need, scaling decisions are slow (2-3 minutes to provision a new node), and bin-packing is poor because CAS picks the cheapest node that fits the pending pod, not the globally optimal packing.</p>
+
+      <p>Karpenter eliminates node groups entirely. It watches for unschedulable pods and directly calls the EC2 API to provision exactly the right instance type for the pending workload — choosing from a fleet of allowed instance families. Provisioning is faster (under 60 seconds in most cases), bin-packing is better, and spot instance diversity is automatic.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — karpenter NodePool and EC2NodeClass</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">karpenter.sh/v1</span>
+<span class="cn">kind</span>: <span class="cs">NodePool</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">general</span>
+<span class="cn">spec</span>:
+  <span class="cn">template</span>:
+    <span class="cn">metadata</span>:
+      <span class="cn">labels</span>:
+        <span class="cn">node-pool</span>: <span class="cs">general</span>
+    <span class="cn">spec</span>:
+      <span class="cn">nodeClassRef</span>:
+        <span class="cn">group</span>: <span class="cs">karpenter.k8s.aws</span>
+        <span class="cn">kind</span>: <span class="cs">EC2NodeClass</span>
+        <span class="cn">name</span>: <span class="cs">general</span>
+      <span class="cn">requirements</span>:
+        - <span class="cn">key</span>: <span class="cs">karpenter.sh/capacity-type</span>
+          <span class="cn">operator</span>: <span class="cs">In</span>
+          <span class="cn">values</span>: [<span class="cs">"spot"</span>, <span class="cs">"on-demand"</span>]  <span class="cc"># spot preferred, on-demand fallback</span>
+        - <span class="cn">key</span>: <span class="cs">karpenter.k8s.aws/instance-category</span>
+          <span class="cn">operator</span>: <span class="cs">In</span>
+          <span class="cn">values</span>: [<span class="cs">"c"</span>, <span class="cs">"m"</span>, <span class="cs">"r"</span>]
+        - <span class="cn">key</span>: <span class="cs">karpenter.k8s.aws/instance-generation</span>
+          <span class="cn">operator</span>: <span class="cs">Gt</span>
+          <span class="cn">values</span>: [<span class="cs">"5"</span>]                   <span class="cc"># only 6th gen and newer</span>
+        - <span class="cn">key</span>: <span class="cs">kubernetes.io/arch</span>
+          <span class="cn">operator</span>: <span class="cs">In</span>
+          <span class="cn">values</span>: [<span class="cs">"amd64"</span>, <span class="cs">"arm64"</span>]   <span class="cc"># Graviton eligible</span>
+  <span class="cn">disruption</span>:
+    <span class="cn">consolidationPolicy</span>: <span class="cs">WhenUnderutilized</span>   <span class="cc"># bin-pack and remove empty nodes</span>
+    <span class="cn">consolidateAfter</span>: <span class="cs">30s</span>
+  <span class="cn">limits</span>:
+    <span class="cn">cpu</span>: <span class="cs">1000</span>     <span class="cc"># max 1000 vCPU across this pool</span>
+    <span class="cn">memory</span>: <span class="cs">4000Gi</span>
+<span class="cc">---</span>
+<span class="cn">apiVersion</span>: <span class="cs">karpenter.k8s.aws/v1</span>
+<span class="cn">kind</span>: <span class="cs">EC2NodeClass</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">general</span>
+<span class="cn">spec</span>:
+  <span class="cn">amiFamily</span>: <span class="cs">AL2023</span>
+  <span class="cn">role</span>: <span class="cs">KarpenterNodeRole-prod-us-east-1</span>
+  <span class="cn">subnetSelectorTerms</span>:
+    - <span class="cn">tags</span>:
+        <span class="cn">karpenter.sh/discovery</span>: <span class="cs">prod-us-east-1</span>
+  <span class="cn">securityGroupSelectorTerms</span>:
+    - <span class="cn">tags</span>:
+        <span class="cn">karpenter.sh/discovery</span>: <span class="cs">prod-us-east-1</span>
+  <span class="cn">blockDeviceMappings</span>:
+    - <span class="cn">deviceName</span>: <span class="cs">/dev/xvda</span>
+      <span class="cn">ebs</span>:
+        <span class="cn">volumeSize</span>: <span class="cs">50Gi</span>
+        <span class="cn">volumeType</span>: <span class="cs">gp3</span>
+        <span class="cn">encrypted</span>: <span class="ck">true</span></pre>
+      </div>
+
+      <p>By allowing Karpenter to pick from the full fleet of m6i, m6a, m6g, c6i, c6a, c6g instance types on spot, it can find spot capacity at a 70-90% discount to on-demand virtually always — because with 10+ instance types in the pool, the probability of all of them being capacity-constrained simultaneously is extremely low. This is the "spot instance diversity" rule that makes spot reliable in 2026.</p>
+
+      <div class="callout tip"><strong>Spot interruption handling.</strong> Karpenter responds to EC2 spot interruption notices (2-minute warning) by immediately cordoning the node and triggering pod eviction. Your pods must have PodDisruptionBudgets to prevent all replicas from being evicted simultaneously. For stateful workloads, use a spot interruption handler like the AWS Node Termination Handler (NTH) to gracefully drain in-flight requests before the node goes away.</div>
+
+      <h2>4. Pod Topology Spread Constraints for Better Bin-Packing</h2>
+
+      <p>Without topology constraints, the Kubernetes scheduler may place all replicas on a few large nodes, leaving other nodes underutilised. This wastes money and reduces resilience. Topology spread constraints force even distribution across nodes and AZs.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — topology spread in Deployment spec</span>
+        <pre><span class="cn">spec</span>:
+  <span class="cn">template</span>:
+    <span class="cn">spec</span>:
+      <span class="cn">topologySpreadConstraints</span>:
+        <span class="cc"># Spread evenly across availability zones</span>
+        - <span class="cn">maxSkew</span>: <span class="cv">1</span>
+          <span class="cn">topologyKey</span>: <span class="cs">topology.kubernetes.io/zone</span>
+          <span class="cn">whenUnsatisfiable</span>: <span class="cs">DoNotSchedule</span>
+          <span class="cn">labelSelector</span>:
+            <span class="cn">matchLabels</span>:
+              <span class="cn">app</span>: <span class="cs">api-server</span>
+        <span class="cc"># Also spread across nodes (max 2 pods per node)</span>
+        - <span class="cn">maxSkew</span>: <span class="cv">1</span>
+          <span class="cn">topologyKey</span>: <span class="cs">kubernetes.io/hostname</span>
+          <span class="cn">whenUnsatisfiable</span>: <span class="cs">ScheduleAnyway</span>   <span class="cc"># soft constraint — prefer, don't require</span>
+          <span class="cn">labelSelector</span>:
+            <span class="cn">matchLabels</span>:
+              <span class="cn">app</span>: <span class="cs">api-server</span>
+      <span class="cn">affinity</span>:
+        <span class="cn">podAntiAffinity</span>:
+          <span class="cn">preferredDuringSchedulingIgnoredDuringExecution</span>:
+            - <span class="cn">weight</span>: <span class="cv">100</span>
+              <span class="cn">podAffinityTerm</span>:
+                <span class="cn">topologyKey</span>: <span class="cs">kubernetes.io/hostname</span>
+                <span class="cn">labelSelector</span>:
+                  <span class="cn">matchLabels</span>:
+                    <span class="cn">app</span>: <span class="cs">api-server</span></pre>
+      </div>
+
+      <h2>5. Namespace Resource Quotas and LimitRanges</h2>
+
+      <p>Without quotas, one team can accidentally (or intentionally) consume the entire cluster. LimitRanges set defaults so developers don't have to think about resource requests on every manifest — and containers without requests/limits are the single biggest source of resource waste because Kubernetes cannot schedule them efficiently.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — namespace quotas and limit ranges</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">v1</span>
+<span class="cn">kind</span>: <span class="cs">ResourceQuota</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">team-quota</span>
+  <span class="cn">namespace</span>: <span class="cs">team-payments</span>
+<span class="cn">spec</span>:
+  <span class="cn">hard</span>:
+    <span class="cn">requests.cpu</span>: <span class="cs">"20"</span>       <span class="cc"># sum of all pod CPU requests in namespace</span>
+    <span class="cn">requests.memory</span>: <span class="cs">40Gi</span>
+    <span class="cn">limits.cpu</span>: <span class="cs">"40"</span>
+    <span class="cn">limits.memory</span>: <span class="cs">80Gi</span>
+    <span class="cn">count/pods</span>: <span class="cs">"100"</span>
+    <span class="cn">count/services</span>: <span class="cs">"20"</span>
+    <span class="cn">count/persistentvolumeclaims</span>: <span class="cs">"20"</span>
+<span class="cc">---</span>
+<span class="cn">apiVersion</span>: <span class="cs">v1</span>
+<span class="cn">kind</span>: <span class="cs">LimitRange</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">default-limits</span>
+  <span class="cn">namespace</span>: <span class="cs">team-payments</span>
+<span class="cn">spec</span>:
+  <span class="cn">limits</span>:
+    - <span class="cn">type</span>: <span class="cs">Container</span>
+      <span class="cn">default</span>:           <span class="cc"># applied if container has no limits set</span>
+        <span class="cn">cpu</span>: <span class="cs">500m</span>
+        <span class="cn">memory</span>: <span class="cs">512Mi</span>
+      <span class="cn">defaultRequest</span>:    <span class="cc"># applied if container has no requests set</span>
+        <span class="cn">cpu</span>: <span class="cs">100m</span>
+        <span class="cn">memory</span>: <span class="cs">128Mi</span>
+      <span class="cn">max</span>:               <span class="cc"># container cannot request more than this</span>
+        <span class="cn">cpu</span>: <span class="cs">"8"</span>
+        <span class="cn">memory</span>: <span class="cs">16Gi</span>
+      <span class="cn">min</span>:
+        <span class="cn">cpu</span>: <span class="cs">10m</span>
+        <span class="cn">memory</span>: <span class="cs">16Mi</span></pre>
+      </div>
+
+      <h2>6. Kubecost for Cost Visibility</h2>
+
+      <p>You cannot optimize what you cannot see. Kubecost allocates AWS/GCP/Azure costs down to the namespace, deployment, and label level. The sticker shock of seeing "this one batch job that runs once a week costs $8,000/month" is a powerful motivator for engineering teams to care about resource usage.</p>
+
+      <p>Install Kubecost via Helm, integrate it with your cloud provider's billing API (AWS Cost and Usage Reports for EKS), and create a dashboard that shows cost by team/namespace updated daily. We surface this as a weekly digest sent to each team's Slack channel: "your namespace spent $X this week, up/down Y% from last week." Teams respond to their own cost data in ways they never respond to platform team lectures about resource efficiency.</p>
+
+      <div class="callout info"><strong>Real numbers from production:</strong> A 40-node EKS cluster at a Series B startup. Starting state: $52k/month. After VPA right-sizing (applied recommendations from 3-week observation): $38k/month (-27%). After switching worker pools to Karpenter + spot: $24k/month (-37% on top of that). After KEDA scale-to-zero on batch workers and reducing off-hours baseline: $18k/month. Final run rate: $18k vs $52k starting point — 65% reduction over 6 months, with the same workloads and improved reliability due to multi-AZ spot diversity.</div>
+
+      <h2>7. Additional Wins: PVC Right-Sizing and EBS gp2 to gp3 Migration</h2>
+
+      <p>Two quick wins that are often overlooked: storage costs can be 10-15% of a Kubernetes cluster's cloud bill, and most of it is waste.</p>
+
+      <p>First, find all EBS volumes still on gp2. A simple <code>kubectl get pvc -A</code> combined with checking the StorageClass will reveal them. Migrating gp2 to gp3 is a 20% cost reduction with better baseline performance — and you can do it online without detaching the volume. Second, find PVCs that are 80%+ empty. This requires Kubecost or querying the <code>kubelet_volume_stats_used_bytes</code> metric from Prometheus: divide it by <code>kubelet_volume_stats_capacity_bytes</code> and find volumes under 20% utilization. For many teams, databases were provisioned at 500Gi "to be safe" and are using 30Gi.</p>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">← all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>

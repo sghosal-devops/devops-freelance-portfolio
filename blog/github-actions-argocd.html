@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Production GitOps: GitHub Actions + ArgoCD End-to-End | Souvik</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/blog.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <nav class="navbar scrolled">
+    <div class="nav-inner">
+      <div class="nav-logo"><a href="../index.html"><span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span></a></div>
+      <ul class="nav-links">
+        <li><a href="../index.html#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="../blog.html" class="nav-active"><span class="prompt-sm">></span> blog</a></li>
+        <li><a href="../index.html#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="post-hero">
+    <div class="container">
+      <a href="../blog.html" class="post-back">← back to blog</a>
+      <div class="post-tags">
+        <span class="blog-tag">CI/CD</span>
+        <span class="blog-tag">GitOps</span>
+        <span class="blog-tag">ArgoCD</span>
+      </div>
+      <h1>Production GitOps: GitHub Actions + ArgoCD End-to-End</h1>
+      <div class="post-meta">
+        <span>Souvik</span><span class="dot-sep">·</span>
+        <span>May 2026</span><span class="dot-sep">·</span>
+        <span>14 min read</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="post-body">
+    <div class="container">
+
+      <p>GitOps is not just "store your YAML in Git." Done right, it means the Git repository is the single source of truth for cluster state, and the cluster enforces that truth continuously. Every change — planned or emergency — goes through a PR. ArgoCD watches the manifest repo and reconciles the cluster to match. GitHub Actions builds, tests, scans, and pushes the image and manifest updates. Nobody <code>kubectl apply</code>s directly to production.</p>
+
+      <p>This post walks through the complete production pipeline I've deployed for multiple clients, with the actual YAML that makes it work.</p>
+
+      <h2>1. The Full Pipeline Flow</h2>
+
+      <p>Here's the end-to-end path from a developer's <code>git push</code> to a running pod in production:</p>
+
+      <ol>
+        <li>Developer pushes to a feature branch → opens PR to <code>main</code></li>
+        <li>GitHub Actions runs: unit tests → <code>docker build</code> → Trivy image scan → push to ECR/GHCR with commit SHA tag</li>
+        <li>On merge to <code>main</code>: GHA updates the image tag in the manifest repo via a PR (or direct push to a branch)</li>
+        <li>Manifest repo PR is reviewed and merged (or auto-merged for non-prod)</li>
+        <li>ArgoCD detects the manifest change and syncs the cluster</li>
+        <li>ArgoCD sync hooks run database migrations, smoke tests, etc.</li>
+        <li>If health checks fail, ArgoCD stops the sync and alerts</li>
+      </ol>
+
+      <p>The critical separation is between the <strong>application repo</strong> (source code, Dockerfile, GHA workflows) and the <strong>manifest repo</strong> (Kubernetes YAML, Helm values, ArgoCD applications). This separation is what makes GitOps auditable — you can look at the manifest repo's git log and know exactly what was deployed, when, by whom, and via which CI run.</p>
+
+      <h2>2. GitHub Actions: Build, Scan, and Push</h2>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — .github/workflows/ci.yaml</span>
+        <pre><span class="cn">name</span>: <span class="cs">CI — Build, Scan, Push</span>
+
+<span class="cn">on</span>:
+  <span class="cn">push</span>:
+    <span class="cn">branches</span>: [<span class="cs">main</span>]
+  <span class="cn">pull_request</span>:
+    <span class="cn">branches</span>: [<span class="cs">main</span>]
+
+<span class="cn">env</span>:
+  <span class="cn">REGISTRY</span>: <span class="cs">ghcr.io</span>
+  <span class="cn">IMAGE_NAME</span>: <span class="cs">${{ github.repository }}</span>
+
+<span class="cn">jobs</span>:
+  <span class="cn">build-scan-push</span>:
+    <span class="cn">runs-on</span>: <span class="cs">ubuntu-latest</span>
+    <span class="cn">permissions</span>:
+      <span class="cn">contents</span>: <span class="cs">read</span>
+      <span class="cn">packages</span>: <span class="cs">write</span>
+      <span class="cn">security-events</span>: <span class="cs">write</span>   <span class="cc"># for SARIF upload</span>
+      <span class="cn">id-token</span>: <span class="cs">write</span>           <span class="cc"># for OIDC signing</span>
+
+    <span class="cn">steps</span>:
+      - <span class="cn">uses</span>: <span class="cs">actions/checkout@v4</span>
+
+      - <span class="cn">name</span>: <span class="cs">Set up Docker Buildx</span>
+        <span class="cn">uses</span>: <span class="cs">docker/setup-buildx-action@v3</span>
+
+      - <span class="cn">name</span>: <span class="cs">Log in to GHCR</span>
+        <span class="cn">uses</span>: <span class="cs">docker/login-action@v3</span>
+        <span class="cn">with</span>:
+          <span class="cn">registry</span>: <span class="cs">${{ env.REGISTRY }}</span>
+          <span class="cn">username</span>: <span class="cs">${{ github.actor }}</span>
+          <span class="cn">password</span>: <span class="cs">${{ secrets.GITHUB_TOKEN }}</span>
+
+      - <span class="cn">name</span>: <span class="cs">Extract metadata</span>
+        <span class="cn">id</span>: <span class="cs">meta</span>
+        <span class="cn">uses</span>: <span class="cs">docker/metadata-action@v5</span>
+        <span class="cn">with</span>:
+          <span class="cn">images</span>: <span class="cs">${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}</span>
+          <span class="cn">tags</span>: |
+            <span class="cs">type=sha,format=long</span>
+            <span class="cs">type=ref,event=branch</span>
+            <span class="cs">type=semver,pattern={{version}}</span>
+
+      - <span class="cn">name</span>: <span class="cs">Build and push image</span>
+        <span class="cn">id</span>: <span class="cs">build</span>
+        <span class="cn">uses</span>: <span class="cs">docker/build-push-action@v5</span>
+        <span class="cn">with</span>:
+          <span class="cn">context</span>: <span class="cs">.</span>
+          <span class="cn">push</span>: <span class="cs">${{ github.event_name != 'pull_request' }}</span>
+          <span class="cn">tags</span>: <span class="cs">${{ steps.meta.outputs.tags }}</span>
+          <span class="cn">labels</span>: <span class="cs">${{ steps.meta.outputs.labels }}</span>
+          <span class="cn">cache-from</span>: <span class="cs">type=gha</span>
+          <span class="cn">cache-to</span>: <span class="cs">type=gha,mode=max</span>
+
+      - <span class="cn">name</span>: <span class="cs">Trivy vulnerability scan</span>
+        <span class="cn">uses</span>: <span class="cs">aquasecurity/trivy-action@master</span>
+        <span class="cn">with</span>:
+          <span class="cn">image-ref</span>: <span class="cs">${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}</span>
+          <span class="cn">format</span>: <span class="cs">sarif</span>
+          <span class="cn">output</span>: <span class="cs">trivy-results.sarif</span>
+          <span class="cn">severity</span>: <span class="cs">CRITICAL,HIGH</span>
+          <span class="cn">exit-code</span>: <span class="cs">'1'</span>   <span class="cc"># fail the build on CRITICAL/HIGH CVEs</span>
+          <span class="cn">ignore-unfixed</span>: <span class="ck">true</span>
+
+      - <span class="cn">name</span>: <span class="cs">Upload Trivy results to GitHub Security</span>
+        <span class="cn">uses</span>: <span class="cs">github/codeql-action/upload-sarif@v3</span>
+        <span class="cn">if</span>: <span class="cs">always()</span>   <span class="cc"># upload even if scan fails, so you see what's there</span>
+        <span class="cn">with</span>:
+          <span class="cn">sarif_file</span>: <span class="cs">trivy-results.sarif</span>
+
+      - <span class="cn">name</span>: <span class="cs">Update manifest repo</span>
+        <span class="cn">if</span>: <span class="cs">github.ref == 'refs/heads/main'</span>
+        <span class="cn">env</span>:
+          <span class="cn">GH_TOKEN</span>: <span class="cs">${{ secrets.MANIFEST_REPO_PAT }}</span>
+          <span class="cn">IMAGE_TAG</span>: <span class="cs">sha-${{ github.sha }}</span>
+        <span class="cn">run</span>: |
+          <span class="cs">git clone https://x-access-token:${GH_TOKEN}@github.com/myorg/k8s-manifests.git</span>
+          <span class="cs">cd k8s-manifests</span>
+          <span class="cs">yq e ".image.tag = \"${IMAGE_TAG}\"" -i apps/api/values-prod.yaml</span>
+          <span class="cs">git config user.email "ci@myorg.com"</span>
+          <span class="cs">git config user.name "CI Bot"</span>
+          <span class="cs">git add apps/api/values-prod.yaml</span>
+          <span class="cs">git commit -m "chore: update api to ${IMAGE_TAG}"</span>
+          <span class="cs">git push</span></pre>
+      </div>
+
+      <div class="callout tip"><strong>Use <code>yq</code> not <code>sed</code>.</strong> Updating image tags with <code>sed -i 's/tag:.*/tag: sha-abc/'</code> breaks on the first YAML comment, multi-line value, or nested key. <code>yq</code> parses the YAML correctly. Pin its version in CI and add a checksum verification if you care about supply-chain security.</div>
+
+      <h2>3. ArgoCD Application Manifests</h2>
+
+      <p>The ArgoCD Application CR is what connects the manifest repo to the cluster. Each application points to a path in Git and a destination namespace in the cluster.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — argocd/apps/api.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">argoproj.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">Application</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-prod</span>
+  <span class="cn">namespace</span>: <span class="cs">argocd</span>
+  <span class="cn">annotations</span>:
+    <span class="cn">notifications.argoproj.io/subscribe.on-sync-failed.slack</span>: <span class="cs">platform-alerts</span>
+    <span class="cn">notifications.argoproj.io/subscribe.on-health-degraded.slack</span>: <span class="cs">platform-alerts</span>
+<span class="cn">spec</span>:
+  <span class="cn">project</span>: <span class="cs">production</span>
+  <span class="cn">source</span>:
+    <span class="cn">repoURL</span>: <span class="cs">https://github.com/myorg/k8s-manifests.git</span>
+    <span class="cn">targetRevision</span>: <span class="cs">HEAD</span>
+    <span class="cn">path</span>: <span class="cs">apps/api</span>
+    <span class="cn">helm</span>:
+      <span class="cn">valueFiles</span>:
+        - <span class="cs">values-base.yaml</span>
+        - <span class="cs">values-prod.yaml</span>
+  <span class="cn">destination</span>:
+    <span class="cn">server</span>: <span class="cs">https://kubernetes.default.svc</span>
+    <span class="cn">namespace</span>: <span class="cs">api-prod</span>
+  <span class="cn">syncPolicy</span>:
+    <span class="cn">automated</span>:
+      <span class="cn">prune</span>: <span class="ck">true</span>      <span class="cc"># delete resources removed from Git</span>
+      <span class="cn">selfHeal</span>: <span class="ck">true</span>   <span class="cc"># revert manual kubectl changes</span>
+    <span class="cn">syncOptions</span>:
+      - <span class="cs">CreateNamespace=true</span>
+      - <span class="cs">PrunePropagationPolicy=foreground</span>
+      - <span class="cs">RespectIgnoreDifferences=true</span>
+    <span class="cn">retry</span>:
+      <span class="cn">limit</span>: <span class="cv">3</span>
+      <span class="cn">backoff</span>:
+        <span class="cn">duration</span>: <span class="cs">10s</span>
+        <span class="cn">factor</span>: <span class="cv">2</span>
+        <span class="cn">maxDuration</span>: <span class="cs">2m</span>
+  <span class="cn">ignoreDifferences</span>:
+    - <span class="cn">group</span>: <span class="cs">apps</span>
+      <span class="cn">kind</span>: <span class="cs">Deployment</span>
+      <span class="cn">jsonPointers</span>:
+        - <span class="cs">/spec/replicas</span>   <span class="cc"># HPA manages this, ignore drift</span></pre>
+      </div>
+
+      <h2>4. App of Apps Pattern</h2>
+
+      <p>Managing 30 ArgoCD Application manifests individually gets unwieldy fast. The App of Apps pattern solves this: one ArgoCD Application points to a directory of other ArgoCD Application manifests. ArgoCD deploys the parent app, which discovers and deploys all child apps.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — argocd/root-app.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">argoproj.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">Application</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">root-app</span>
+  <span class="cn">namespace</span>: <span class="cs">argocd</span>
+<span class="cn">spec</span>:
+  <span class="cn">project</span>: <span class="cs">default</span>
+  <span class="cn">source</span>:
+    <span class="cn">repoURL</span>: <span class="cs">https://github.com/myorg/k8s-manifests.git</span>
+    <span class="cn">targetRevision</span>: <span class="cs">HEAD</span>
+    <span class="cn">path</span>: <span class="cs">argocd/apps</span>   <span class="cc"># directory containing all Application manifests</span>
+  <span class="cn">destination</span>:
+    <span class="cn">server</span>: <span class="cs">https://kubernetes.default.svc</span>
+    <span class="cn">namespace</span>: <span class="cs">argocd</span>
+  <span class="cn">syncPolicy</span>:
+    <span class="cn">automated</span>:
+      <span class="cn">prune</span>: <span class="ck">true</span>
+      <span class="cn">selfHeal</span>: <span class="ck">true</span></pre>
+      </div>
+
+      <p>Bootstrap by applying <code>root-app.yaml</code> once: <code>kubectl apply -f argocd/root-app.yaml</code>. From that point on, adding a new application is just adding a new YAML file to <code>argocd/apps/</code> and merging the PR. ArgoCD discovers it on the next sync cycle.</p>
+
+      <h2>5. Sync Waves and Hooks</h2>
+
+      <p>Not all resources should sync at the same time. Database migrations must complete before the new application version starts. CRDs must exist before CR instances. Sync waves control the ordering.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — apps/api/templates/db-migrate-job.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">batch/v1</span>
+<span class="cn">kind</span>: <span class="cs">Job</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-db-migrate-{{ .Release.Revision }}</span>
+  <span class="cn">annotations</span>:
+    <span class="cn">argocd.argoproj.io/hook</span>: <span class="cs">PreSync</span>           <span class="cc"># runs before any resources sync</span>
+    <span class="cn">argocd.argoproj.io/hook-delete-policy</span>: <span class="cs">HookSucceeded</span>
+    <span class="cn">argocd.argoproj.io/sync-wave</span>: <span class="cs">"-1"</span>          <span class="cc"># lower number = earlier wave</span>
+<span class="cn">spec</span>:
+  <span class="cn">ttlSecondsAfterFinished</span>: <span class="cv">3600</span>
+  <span class="cn">template</span>:
+    <span class="cn">spec</span>:
+      <span class="cn">restartPolicy</span>: <span class="cs">Never</span>
+      <span class="cn">containers</span>:
+        - <span class="cn">name</span>: <span class="cs">migrate</span>
+          <span class="cn">image</span>: <span class="cs">{{ .Values.image.repository }}:{{ .Values.image.tag }}</span>
+          <span class="cn">command</span>: [<span class="cs">"python"</span>, <span class="cs">"manage.py"</span>, <span class="cs">"migrate"</span>, <span class="cs">"--noinput"</span>]
+          <span class="cn">env</span>:
+            - <span class="cn">name</span>: <span class="cs">DATABASE_URL</span>
+              <span class="cn">valueFrom</span>:
+                <span class="cn">secretKeyRef</span>:
+                  <span class="cn">name</span>: <span class="cs">api-secrets</span>
+                  <span class="cn">key</span>: <span class="cs">database-url</span></pre>
+      </div>
+
+      <p>Wave numbering: <code>-2</code> for CRD installations, <code>-1</code> for migrations and pre-flight checks, <code>0</code> (default) for the main application, <code>1</code> for post-deploy smoke tests. The PostSync hook is useful for sending a deployment notification to Slack or DataDog.</p>
+
+      <h2>6. Secrets Management with External Secrets Operator</h2>
+
+      <p>Never store plaintext secrets in the manifest repo. Sealed Secrets encrypts secrets at rest in Git (encrypted with the cluster's public key), but the ESO (External Secrets Operator) approach is more flexible: secrets live in AWS Secrets Manager or Vault and ESO syncs them into Kubernetes Secrets on a schedule.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — apps/api/templates/external-secret.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">external-secrets.io/v1beta1</span>
+<span class="cn">kind</span>: <span class="cs">ExternalSecret</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">api-secrets</span>
+  <span class="cn">namespace</span>: <span class="cs">api-prod</span>
+<span class="cn">spec</span>:
+  <span class="cn">refreshInterval</span>: <span class="cs">1h</span>
+  <span class="cn">secretStoreRef</span>:
+    <span class="cn">name</span>: <span class="cs">aws-secrets-manager</span>
+    <span class="cn">kind</span>: <span class="cs">ClusterSecretStore</span>
+  <span class="cn">target</span>:
+    <span class="cn">name</span>: <span class="cs">api-secrets</span>
+    <span class="cn">creationPolicy</span>: <span class="cs">Owner</span>
+  <span class="cn">data</span>:
+    - <span class="cn">secretKey</span>: <span class="cs">database-url</span>
+      <span class="cn">remoteRef</span>:
+        <span class="cn">key</span>: <span class="cs">/prod/api/database-url</span>
+    - <span class="cn">secretKey</span>: <span class="cs">jwt-secret</span>
+      <span class="cn">remoteRef</span>:
+        <span class="cn">key</span>: <span class="cs">/prod/api/jwt-secret</span>
+    - <span class="cn">secretKey</span>: <span class="cs">stripe-key</span>
+      <span class="cn">remoteRef</span>:
+        <span class="cn">key</span>: <span class="cs">/prod/api/stripe-key</span></pre>
+      </div>
+
+      <div class="callout warn"><strong>ESO vs Sealed Secrets:</strong> Sealed Secrets is simpler to operate (no external dependency) but ties secrets to a specific cluster. If you rotate the sealing key or rebuild the cluster, you must re-encrypt all secrets. ESO is more operationally complex but stores secrets in a system you already manage (Vault, AWS SM) and works across clusters. For multi-cluster or multi-cloud setups, ESO wins. For a single cluster with a small team, Sealed Secrets is fine.</div>
+
+      <h2>7. ArgoCD RBAC</h2>
+
+      <p>ArgoCD has its own RBAC model layered on top of Kubernetes. By default, anyone authenticated can see all applications — which in a production cluster is too permissive. Define ArgoCD Projects to scope what each team can do.</p>
+
+      <div class="code-block">
+        <span class="code-lang">yaml — argocd/projects/production.yaml</span>
+        <pre><span class="cn">apiVersion</span>: <span class="cs">argoproj.io/v1alpha1</span>
+<span class="cn">kind</span>: <span class="cs">AppProject</span>
+<span class="cn">metadata</span>:
+  <span class="cn">name</span>: <span class="cs">production</span>
+  <span class="cn">namespace</span>: <span class="cs">argocd</span>
+<span class="cn">spec</span>:
+  <span class="cn">description</span>: <span class="cs">Production workloads — platform team gated</span>
+  <span class="cn">sourceRepos</span>:
+    - <span class="cs">https://github.com/myorg/k8s-manifests.git</span>
+  <span class="cn">destinations</span>:
+    - <span class="cn">namespace</span>: <span class="cs">api-prod</span>
+      <span class="cn">server</span>: <span class="cs">https://kubernetes.default.svc</span>
+    - <span class="cn">namespace</span>: <span class="cs">payments-prod</span>
+      <span class="cn">server</span>: <span class="cs">https://kubernetes.default.svc</span>
+  <span class="cn">clusterResourceWhitelist</span>:
+    - <span class="cn">group</span>: <span class="cs">''</span>
+      <span class="cn">kind</span>: <span class="cs">Namespace</span>
+  <span class="cn">namespaceResourceBlacklist</span>:
+    - <span class="cn">group</span>: <span class="cs">''</span>
+      <span class="cn">kind</span>: <span class="cs">ResourceQuota</span>   <span class="cc"># apps can't modify their own quotas</span>
+  <span class="cn">roles</span>:
+    - <span class="cn">name</span>: <span class="cs">read-only</span>
+      <span class="cn">description</span>: <span class="cs">View-only access for developers</span>
+      <span class="cn">policies</span>:
+        - <span class="cs">p, proj:production:read-only, applications, get, production/*, allow</span>
+      <span class="cn">groups</span>:
+        - <span class="cs">myorg:developers</span>
+    - <span class="cn">name</span>: <span class="cs">deployer</span>
+      <span class="cn">description</span>: <span class="cs">Can sync but not delete apps</span>
+      <span class="cn">policies</span>:
+        - <span class="cs">p, proj:production:deployer, applications, sync, production/*, allow</span>
+      <span class="cn">groups</span>:
+        - <span class="cs">myorg:platform-team</span></pre>
+      </div>
+
+      <h2>8. Rollback Strategy</h2>
+
+      <p>ArgoCD's rollback is to pin the application to a previous git commit, not to use <code>kubectl rollout undo</code>. This is the key GitOps principle: Git is the source of truth, so rolling back means reverting in Git.</p>
+
+      <p>Operationally, the fastest rollback is: identify the last known-good commit SHA in the manifest repo, <code>git revert</code> (not reset) the bad commit, merge the revert PR, and let ArgoCD sync. For true emergencies where a PR is too slow, ArgoCD UI has a "Rollback" button that pins the application to a previous History state — but this puts the app into an "out-of-sync" state that must be reconciled by a Git revert afterwards.</p>
+
+      <div class="callout info"><strong>ArgoCD Image Updater</strong> can automate image tag updates without needing GHA to write to the manifest repo. It watches your container registry for new tags matching a pattern and commits the update directly. For rapid iteration in dev/staging this is useful. For production, prefer the explicit GHA commit approach — it gives you a PR and a human review step before the image hits prod.</div>
+
+      <h2>Summary</h2>
+
+      <p>A mature GitOps setup takes about two weeks to build properly and pays dividends for years. The critical elements: strict separation of app repo and manifest repo, Trivy scanning that fails the build on unpatched CRITICAL CVEs, ArgoCD App of Apps for scalable application management, sync waves for migration ordering, ESO for secrets, and ArgoCD RBAC aligned with your team structure. Once this is running, every deployment is a git commit, every rollback is a git revert, and your audit trail is complete.</p>
+
+      <div class="post-cta">
+        <h3>Need help with this?</h3>
+        <p>I offer freelance DevOps services on weekends and off-hours.</p>
+        <a href="../index.html#contact" class="btn-primary">Let's Talk</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo"><a href="../index.html"><span class="prompt">~/</span><span>souvik</span></a></div>
+      <p class="footer-copy">© 2026 Souvik.</p>
+      <div class="footer-links"><a href="../blog.html">← all posts</a><a href="../index.html#contact">contact</a></div>
+    </div>
+  </footer>
+</body>
+</html>
