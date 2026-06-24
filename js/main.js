@@ -168,6 +168,65 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
   });
 });
 
+// ── 3D Tag Sphere ──
+(function () {
+  const container = document.getElementById('sphereContainer');
+  if (!container) return;
+
+  const tools = [
+    'AWS', 'GCP', 'OCI', 'Azure', 'Docker', 'Kubernetes', 'Terraform',
+    'Ansible', 'Helm', 'ArgoCD', 'FluxCD', 'Jenkins', 'GitHub Actions',
+    'GitLab CI', 'Prometheus', 'Grafana', 'Loki', 'Jaeger', 'ELK Stack',
+    'Datadog', 'Vault', 'Trivy', 'OPA', 'Istio', 'Cilium', 'Karpenter',
+    'KEDA', 'Pulumi', 'Packer', 'Traefik', 'Nginx', 'Envoy', 'Harbor',
+    'ECR', 'Falco', 'Snyk', 'SonarQube', 'OpenTelemetry', 'Fluentd',
+    'Kafka', 'Redis', 'PostgreSQL', 'Linux', 'Bash', 'Python', 'Go',
+    'HCL', 'Crossplane', 'VictoriaMetrics', 'Cosign'
+  ];
+
+  const isMobile = window.innerWidth < 600;
+  const R = isMobile ? 140 : 210;
+  const golden = Math.PI * (1 + Math.sqrt(5));
+  const N = tools.length;
+  const tags = [];
+  const pos = [];
+
+  for (let i = 0; i < N; i++) {
+    const phi = Math.acos(1 - 2 * (i + 0.5) / N);
+    const theta = golden * i;
+    pos.push({ phi, theta });
+
+    const tag = document.createElement('span');
+    tag.className = 'sphere-tag';
+    tag.textContent = tools[i];
+    container.appendChild(tag);
+    tags.push(tag);
+  }
+
+  let angle = 0;
+  let paused = false;
+  container.addEventListener('mouseenter', () => { paused = true; });
+  container.addEventListener('mouseleave', () => { paused = false; });
+
+  function frame() {
+    if (!paused) angle += 0.004;
+    for (let i = 0; i < N; i++) {
+      const { phi, theta } = pos[i];
+      const x = R * Math.sin(phi) * Math.cos(theta + angle);
+      const y = R * Math.cos(phi);
+      const z = R * Math.sin(phi) * Math.sin(theta + angle);
+      const zNorm = (z + R) / (2 * R);
+      const sc = 0.55 + 0.5 * zNorm;
+      const op = 0.15 + 0.85 * zNorm;
+      tags[i].style.transform = `translate(-50%,-50%) translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,${z.toFixed(1)}px) scale(${sc.toFixed(3)})`;
+      tags[i].style.opacity = op.toFixed(3);
+      tags[i].style.zIndex = Math.round(z + R);
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+
 // ── Smooth scroll for anchor links ──
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
   anchor.addEventListener('click', e => {
