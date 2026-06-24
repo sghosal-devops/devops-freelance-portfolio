@@ -168,63 +168,86 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
   });
 });
 
-// ── 3D Tag Sphere ──
+// ── Tools Infinite Row (Simple Icons logos) ──
 (function () {
-  const container = document.getElementById('sphereContainer');
-  if (!container) return;
+  const track = document.getElementById('toolsTrack');
+  if (!track) return;
 
+  // icon: Simple Icons slug (https://simpleicons.org) | null = badge fallback
   const tools = [
-    'AWS', 'GCP', 'OCI', 'Azure', 'Docker', 'Kubernetes', 'Terraform',
-    'Ansible', 'Helm', 'ArgoCD', 'FluxCD', 'Jenkins', 'GitHub Actions',
-    'GitLab CI', 'Prometheus', 'Grafana', 'Loki', 'Jaeger', 'ELK Stack',
-    'Datadog', 'Vault', 'Trivy', 'OPA', 'Istio', 'Cilium', 'Karpenter',
-    'KEDA', 'Pulumi', 'Packer', 'Traefik', 'Nginx', 'Envoy', 'Harbor',
-    'ECR', 'Falco', 'Snyk', 'SonarQube', 'OpenTelemetry', 'Fluentd',
-    'Kafka', 'Redis', 'PostgreSQL', 'Linux', 'Bash', 'Python', 'Go',
-    'HCL', 'Crossplane', 'VictoriaMetrics', 'Cosign'
+    { name: 'AWS',            icon: 'amazonaws',      col: 'FF9900', abbr: 'AWS' },
+    { name: 'GCP',            icon: 'googlecloud',    col: '4285F4', abbr: 'GCP' },
+    { name: 'OCI',            icon: 'oracle',         col: 'F80000', abbr: 'OCI' },
+    { name: 'Azure',          icon: 'microsoftazure', col: '0078D4', abbr: 'Az'  },
+    { name: 'Docker',         icon: 'docker',         col: '2496ED', abbr: 'Do'  },
+    { name: 'Kubernetes',     icon: 'kubernetes',     col: '326CE5', abbr: 'K8s' },
+    { name: 'Terraform',      icon: 'terraform',      col: '7B42BC', abbr: 'Tf'  },
+    { name: 'Ansible',        icon: 'ansible',        col: 'EE0000', abbr: 'An'  },
+    { name: 'Helm',           icon: 'helm',           col: '277A9F', abbr: 'Hm'  },
+    { name: 'ArgoCD',         icon: 'argo',           col: 'EF7B4D', abbr: 'Ar'  },
+    { name: 'FluxCD',         icon: 'flux',           col: '5CC8EF', abbr: 'Fx'  },
+    { name: 'Jenkins',        icon: 'jenkins',        col: 'D24939', abbr: 'Jk'  },
+    { name: 'GitHub Actions', icon: 'githubactions',  col: '2088FF', abbr: 'GH'  },
+    { name: 'GitLab CI',      icon: 'gitlab',         col: 'FC6D26', abbr: 'GL'  },
+    { name: 'Prometheus',     icon: 'prometheus',     col: 'E6522C', abbr: 'Pm'  },
+    { name: 'Grafana',        icon: 'grafana',        col: 'F46800', abbr: 'Gr'  },
+    { name: 'Datadog',        icon: 'datadog',        col: '632CA6', abbr: 'DD'  },
+    { name: 'Elasticsearch',  icon: 'elasticsearch',  col: '00BFB3', abbr: 'ES'  },
+    { name: 'Loki',           icon: 'grafana',        col: 'F0A500', abbr: 'Lk'  },
+    { name: 'Vault',          icon: 'vault',          col: 'FFEC6E', abbr: 'V'   },
+    { name: 'Nginx',          icon: 'nginx',          col: '009639', abbr: 'Nx'  },
+    { name: 'Istio',          icon: 'istio',          col: '466BB0', abbr: 'Is'  },
+    { name: 'Traefik',        icon: 'traefikproxy',   col: '24A1C1', abbr: 'Tk'  },
+    { name: 'Linux',          icon: 'linux',          col: 'FCC624', abbr: 'Lx'  },
+    { name: 'Python',         icon: 'python',         col: '3776AB', abbr: 'Py'  },
+    { name: 'Go',             icon: 'go',             col: '00ADD8', abbr: 'Go'  },
+    { name: 'Bash',           icon: 'gnubash',        col: '4EAA25', abbr: '$'   },
+    { name: 'Redis',          icon: 'redis',          col: 'DC382D', abbr: 'Re'  },
+    { name: 'Kafka',          icon: 'apachekafka',    col: 'ffffff', abbr: 'Kf'  },
+    { name: 'Pulumi',         icon: 'pulumi',         col: '8A3391', abbr: 'Pu'  },
+    { name: 'SonarQube',      icon: 'sonarqube',      col: '4E9BCD', abbr: 'Sq'  },
+    { name: 'Snyk',           icon: 'snyk',           col: '4C4A73', abbr: 'Sk'  },
+    { name: 'Falco',          icon: null,             col: '00AEF3', abbr: 'Fa'  },
+    { name: 'OPA',            icon: null,             col: '4E5EE4', abbr: 'OPA' },
+    { name: 'Trivy',          icon: null,             col: '1904DA', abbr: 'Tv'  },
   ];
 
-  const isMobile = window.innerWidth < 600;
-  const R = isMobile ? 140 : 210;
-  const golden = Math.PI * (1 + Math.sqrt(5));
-  const N = tools.length;
-  const tags = [];
-  const pos = [];
-
-  for (let i = 0; i < N; i++) {
-    const phi = Math.acos(1 - 2 * (i + 0.5) / N);
-    const theta = golden * i;
-    pos.push({ phi, theta });
-
-    const tag = document.createElement('span');
-    tag.className = 'sphere-tag';
-    tag.textContent = tools[i];
-    container.appendChild(tag);
-    tags.push(tag);
-  }
-
-  let angle = 0;
-  let paused = false;
-  container.addEventListener('mouseenter', () => { paused = true; });
-  container.addEventListener('mouseleave', () => { paused = false; });
-
-  function frame() {
-    if (!paused) angle += 0.004;
-    for (let i = 0; i < N; i++) {
-      const { phi, theta } = pos[i];
-      const x = R * Math.sin(phi) * Math.cos(theta + angle);
-      const y = R * Math.cos(phi);
-      const z = R * Math.sin(phi) * Math.sin(theta + angle);
-      const zNorm = (z + R) / (2 * R);
-      const sc = 0.55 + 0.5 * zNorm;
-      const op = 0.15 + 0.85 * zNorm;
-      tags[i].style.transform = `translate(-50%,-50%) translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,${z.toFixed(1)}px) scale(${sc.toFixed(3)})`;
-      tags[i].style.opacity = op.toFixed(3);
-      tags[i].style.zIndex = Math.round(z + R);
+  function makeIcon(t) {
+    if (!t.icon) {
+      const b = document.createElement('span');
+      b.className = 'tc-badge';
+      b.style.background = '#' + t.col;
+      b.textContent = t.abbr;
+      return b;
     }
-    requestAnimationFrame(frame);
+    const img = document.createElement('img');
+    img.src = `https://cdn.simpleicons.org/${t.icon}/${t.col}`;
+    img.alt = t.name;
+    img.width = 22;
+    img.height = 22;
+    img.className = 'tc-logo';
+    img.onerror = function () {
+      const b = document.createElement('span');
+      b.className = 'tc-badge';
+      b.style.background = '#' + t.col;
+      b.textContent = t.abbr;
+      this.parentNode.replaceChild(b, this);
+    };
+    return img;
   }
-  frame();
+
+  function chip(t) {
+    const el = document.createElement('div');
+    el.className = 'tool-chip';
+    el.appendChild(makeIcon(t));
+    const nm = document.createElement('span');
+    nm.className = 'tc-name';
+    nm.textContent = t.name;
+    el.appendChild(nm);
+    return el;
+  }
+
+  [...tools, ...tools].forEach(t => track.appendChild(chip(t)));
 })();
 
 // ── Smooth scroll for anchor links ──
