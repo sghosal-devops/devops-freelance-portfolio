@@ -168,52 +168,55 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
   });
 });
 
-// ── Tools Infinite Row (Simple Icons logos) ──
+// ── Tools Infinite Row ──
 (function () {
   const track = document.getElementById('toolsTrack');
   if (!track) return;
 
-  // icon: Simple Icons slug (https://simpleicons.org) | null = badge fallback
+  // DI = Devicons (colored SVGs), SI = Simple Icons (monochrome, colored by URL)
+  const DI = n => `https://cdn.jsdelivr.net/gh/devicons/devicon@v2.16.0/icons/${n}/${n}-original.svg`;
+  const SI = (n, c) => `https://cdn.simpleicons.org/${n}/${c}`;
+
   const tools = [
-    { name: 'AWS',            icon: 'amazonaws',      col: 'FF9900', abbr: 'AWS' },
-    { name: 'GCP',            icon: 'googlecloud',    col: '4285F4', abbr: 'GCP' },
-    { name: 'OCI',            icon: 'oracle',         col: 'F80000', abbr: 'OCI' },
-    { name: 'Azure',          icon: 'microsoftazure', col: '0078D4', abbr: 'Az'  },
-    { name: 'Docker',         icon: 'docker',         col: '2496ED', abbr: 'Do'  },
-    { name: 'Kubernetes',     icon: 'kubernetes',     col: '326CE5', abbr: 'K8s' },
-    { name: 'Terraform',      icon: 'terraform',      col: '7B42BC', abbr: 'Tf'  },
-    { name: 'Ansible',        icon: 'ansible',        col: 'EE0000', abbr: 'An'  },
-    { name: 'Helm',           icon: 'helm',           col: '277A9F', abbr: 'Hm'  },
-    { name: 'ArgoCD',         icon: 'argo',           col: 'EF7B4D', abbr: 'Ar'  },
-    { name: 'FluxCD',         icon: 'flux',           col: '5CC8EF', abbr: 'Fx'  },
-    { name: 'Jenkins',        icon: 'jenkins',        col: 'D24939', abbr: 'Jk'  },
-    { name: 'GitHub Actions', icon: 'githubactions',  col: '2088FF', abbr: 'GH'  },
-    { name: 'GitLab CI',      icon: 'gitlab',         col: 'FC6D26', abbr: 'GL'  },
-    { name: 'Prometheus',     icon: 'prometheus',     col: 'E6522C', abbr: 'Pm'  },
-    { name: 'Grafana',        icon: 'grafana',        col: 'F46800', abbr: 'Gr'  },
-    { name: 'Datadog',        icon: 'datadog',        col: '632CA6', abbr: 'DD'  },
-    { name: 'Elasticsearch',  icon: 'elasticsearch',  col: '00BFB3', abbr: 'ES'  },
-    { name: 'Loki',           icon: 'grafana',        col: 'F0A500', abbr: 'Lk'  },
-    { name: 'Vault',          icon: 'vault',          col: 'FFEC6E', abbr: 'V'   },
-    { name: 'Nginx',          icon: 'nginx',          col: '009639', abbr: 'Nx'  },
-    { name: 'Istio',          icon: 'istio',          col: '466BB0', abbr: 'Is'  },
-    { name: 'Traefik',        icon: 'traefikproxy',   col: '24A1C1', abbr: 'Tk'  },
-    { name: 'Linux',          icon: 'linux',          col: 'FCC624', abbr: 'Lx'  },
-    { name: 'Python',         icon: 'python',         col: '3776AB', abbr: 'Py'  },
-    { name: 'Go',             icon: 'go',             col: '00ADD8', abbr: 'Go'  },
-    { name: 'Bash',           icon: 'gnubash',        col: '4EAA25', abbr: '$'   },
-    { name: 'Redis',          icon: 'redis',          col: 'DC382D', abbr: 'Re'  },
-    { name: 'Kafka',          icon: 'apachekafka',    col: 'ffffff', abbr: 'Kf'  },
-    { name: 'Pulumi',         icon: 'pulumi',         col: '8A3391', abbr: 'Pu'  },
-    { name: 'SonarQube',      icon: 'sonarqube',      col: '4E9BCD', abbr: 'Sq'  },
-    { name: 'Snyk',           icon: 'snyk',           col: '4C4A73', abbr: 'Sk'  },
-    { name: 'Falco',          icon: null,             col: '00AEF3', abbr: 'Fa'  },
-    { name: 'OPA',            icon: null,             col: '4E5EE4', abbr: 'OPA' },
-    { name: 'Trivy',          icon: null,             col: '1904DA', abbr: 'Tv'  },
+    { name: 'AWS',            src: SI('amazonaws','FF9900'),      col:'FF9900', abbr:'AWS' },
+    { name: 'GCP',            src: DI('googlecloud'),             col:'4285F4', abbr:'GCP' },
+    { name: 'Azure',          src: DI('azure'),                   col:'0078D4', abbr:'Az'  },
+    { name: 'OCI',            src: SI('oracle','F80000'),         col:'F80000', abbr:'OCI' },
+    { name: 'Docker',         src: DI('docker'),                  col:'2496ED', abbr:'Do'  },
+    { name: 'Kubernetes',     src: DI('kubernetes'),              col:'326CE5', abbr:'K8s' },
+    { name: 'Terraform',      src: DI('terraform'),               col:'7B42BC', abbr:'Tf'  },
+    { name: 'Ansible',        src: DI('ansible'),                 col:'EE0000', abbr:'An'  },
+    { name: 'Helm',           src: DI('helm'),                    col:'277A9F', abbr:'Hm'  },
+    { name: 'ArgoCD',         src: DI('argocd'),                  col:'EF7B4D', abbr:'Ar'  },
+    { name: 'Jenkins',        src: DI('jenkins'),                 col:'D24939', abbr:'Jk'  },
+    { name: 'GitHub Actions', src: SI('githubactions','2088FF'),  col:'2088FF', abbr:'GH'  },
+    { name: 'GitLab CI',      src: DI('gitlab'),                  col:'FC6D26', abbr:'GL'  },
+    { name: 'Prometheus',     src: DI('prometheus'),              col:'E6522C', abbr:'Pm'  },
+    { name: 'Grafana',        src: DI('grafana'),                 col:'F46800', abbr:'Gr'  },
+    { name: 'Datadog',        src: SI('datadog','632CA6'),        col:'632CA6', abbr:'DD'  },
+    { name: 'Elasticsearch',  src: DI('elasticsearch'),           col:'00BFB3', abbr:'ES'  },
+    { name: 'Nginx',          src: DI('nginx'),                   col:'009639', abbr:'Nx'  },
+    { name: 'Linux',          src: DI('linux'),                   col:'FCC624', abbr:'Lx'  },
+    { name: 'Python',         src: DI('python'),                  col:'3776AB', abbr:'Py'  },
+    { name: 'Go',             src: DI('go'),                      col:'00ADD8', abbr:'Go'  },
+    { name: 'Bash',           src: DI('bash'),                    col:'4EAA25', abbr:'$'   },
+    { name: 'Redis',          src: DI('redis'),                   col:'DC382D', abbr:'Re'  },
+    { name: 'PostgreSQL',     src: DI('postgresql'),              col:'336791', abbr:'PG'  },
+    { name: 'Kafka',          src: SI('apachekafka','ffffff'),    col:'888888', abbr:'Kf'  },
+    { name: 'Pulumi',         src: SI('pulumi','8A3391'),         col:'8A3391', abbr:'Pu'  },
+    { name: 'SonarQube',      src: SI('sonarqube','4E9BCD'),      col:'4E9BCD', abbr:'Sq'  },
+    { name: 'Snyk',           src: SI('snyk','4C4A73'),           col:'4C4A73', abbr:'Sk'  },
+    { name: 'Vault',          src: SI('vault','FFEC6E'),          col:'FFEC6E', abbr:'V'   },
+    { name: 'Istio',          src: SI('istio','466BB0'),          col:'466BB0', abbr:'Is'  },
+    { name: 'Traefik',        src: SI('traefikproxy','24A1C1'),   col:'24A1C1', abbr:'Tk'  },
+    { name: 'FluxCD',         col:'5CC8EF', abbr:'Fx'  },
+    { name: 'Falco',          col:'00AEF3', abbr:'Fa'  },
+    { name: 'OPA',            col:'4E5EE4', abbr:'OPA' },
+    { name: 'Trivy',          col:'1904DA', abbr:'Tv'  },
   ];
 
   function makeIcon(t) {
-    if (!t.icon) {
+    if (!t.src) {
       const b = document.createElement('span');
       b.className = 'tc-badge';
       b.style.background = '#' + t.col;
@@ -221,7 +224,7 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
       return b;
     }
     const img = document.createElement('img');
-    img.src = `https://cdn.simpleicons.org/${t.icon}/${t.col}`;
+    img.src = t.src;
     img.alt = t.name;
     img.width = 22;
     img.height = 22;
