@@ -253,6 +253,27 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
   [...tools, ...tools].forEach(t => track.appendChild(chip(t)));
 })();
 
+// ── Scroll Spy ──
+(function () {
+  const sections = document.querySelectorAll('section[id]');
+  const navAnchors = document.querySelectorAll('.nav-links a[href^="#"]');
+
+  const spyObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        navAnchors.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, {
+    rootMargin: '-15% 0px -75% 0px'
+  });
+
+  sections.forEach(s => spyObserver.observe(s));
+})();
+
 // ── Smooth scroll for anchor links ──
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
   anchor.addEventListener('click', e => {

@@ -101,6 +101,7 @@ a { text-decoration: none; color: inherit; }
   letter-spacing: .05em;
 }
 .nav-links a:hover { color: var(--green); }
+.nav-links a.active { color: var(--green); }
 .nav-links .prompt-sm { color: var(--green); margin-right: 2px; }
 
 .nav-cta {
