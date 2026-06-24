@@ -498,31 +498,55 @@ a { text-decoration: none; color: inherit; }
   margin-left: 8px;
 }
 
-.skills-yaml { padding: 0; }
+/* Vertical timeline trunk */
+.skills-yaml {
+  position: relative;
+  padding: 0;
+}
+.skills-yaml::before {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, #30363d 8%, #30363d 92%, transparent);
+  pointer-events: none;
+}
 
 .skill-entry {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 24px 16px 22px;
+  padding: 18px 24px 18px 50px;
   border-bottom: 1px solid #21262d;
   position: relative;
   transition: background .2s;
 }
 .skill-entry:last-child { border-bottom: none; }
+/* Glowing dot on timeline */
 .skill-entry::before {
   content: '';
   position: absolute;
-  left: 0; top: 0; bottom: 0; width: 3px;
+  left: 16px;
+  top: 21px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   background: var(--sc);
-  opacity: .85;
+  box-shadow: 0 0 8px var(--sc), 0 0 16px color-mix(in srgb, var(--sc) 30%, transparent);
+  border: 2px solid #0d1117;
+  z-index: 1;
+  transition: box-shadow .25s;
 }
 .skill-entry:hover { background: #ffffff03; }
+.skill-entry:hover::before {
+  box-shadow: 0 0 14px var(--sc), 0 0 28px color-mix(in srgb, var(--sc) 40%, transparent);
+}
 
 .se-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .se-key {
@@ -532,6 +556,13 @@ a { text-decoration: none; color: inherit; }
   font-weight: 500;
 }
 .se-colon { font-family: var(--font-mono); color: #6e7681; }
+.se-comment {
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  color: #3d8a60;
+  opacity: .85;
+  margin-left: 4px;
+}
 
 .sc-level {
   font-family: var(--font-mono);
@@ -552,11 +583,10 @@ a { text-decoration: none; color: inherit; }
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  padding-left: 18px;
 }
 .se-prop {
   font-family: var(--font-mono);
-  font-size: .7rem;
+  font-size: .68rem;
   color: #3d8a60;
   white-space: nowrap;
   flex-shrink: 0;
@@ -982,7 +1012,11 @@ a { text-decoration: none; color: inherit; }
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+.project-card-header > div:first-child {
+  flex: 1;
+  min-width: 0;
 }
 .project-title {
   font-size: 1.05rem;
