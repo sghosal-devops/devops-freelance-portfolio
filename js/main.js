@@ -218,7 +218,7 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
   function makeIcon(t) {
     if (!t.src) {
       const b = document.createElement('span');
-      b.className = 'tc-badge';
+      b.className = 'tool-icon-badge';
       b.style.background = '#' + t.col;
       b.textContent = t.abbr;
       return b;
@@ -231,7 +231,7 @@ document.querySelectorAll('.accordion-trigger').forEach(trigger => {
     img.className = 'tc-logo';
     img.onerror = function () {
       const b = document.createElement('span');
-      b.className = 'tc-badge';
+      b.className = 'tool-icon-badge';
       b.style.background = '#' + t.col;
       b.textContent = t.abbr;
       this.parentNode.replaceChild(b, this);
