@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Souvik | DevOps Engineer</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-inner">
+      <div class="nav-logo">
+        <span class="prompt">~/</span><span class="nav-name">souvik</span><span class="cursor-blink">_</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#about"><span class="prompt-sm">></span> about</a></li>
+        <li><a href="#skills"><span class="prompt-sm">></span> skills</a></li>
+        <li><a href="#services"><span class="prompt-sm">></span> services</a></li>
+        <li><a href="#experience"><span class="prompt-sm">></span> experience</a></li>
+        <li><a href="#projects"><span class="prompt-sm">></span> projects</a></li>
+        <li><a href="#endorsements"><span class="prompt-sm">></span> endorsements</a></li>
+        <li><a href="#contact" class="nav-cta">hire_me.sh</a></li>
+      </ul>
+      <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- MOBILE MENU -->
+  <div class="mobile-menu" id="mobileMenu">
+    <ul>
+      <li><a href="#about" class="mob-link"><span class="prompt-sm">></span> about</a></li>
+      <li><a href="#skills" class="mob-link"><span class="prompt-sm">></span> skills</a></li>
+      <li><a href="#services" class="mob-link"><span class="prompt-sm">></span> services</a></li>
+      <li><a href="#experience" class="mob-link"><span class="prompt-sm">></span> experience</a></li>
+      <li><a href="#projects" class="mob-link"><span class="prompt-sm">></span> projects</a></li>
+      <li><a href="#contact" class="mob-link"><span class="prompt-sm">></span> contact</a></li>
+    </ul>
+  </div>
+
+  <!-- HERO -->
+  <section class="hero" id="home">
+    <div class="hero-bg-grid"></div>
+    <div class="hero-glow"></div>
+    <div class="hero-inner">
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green-dot"></span>
+          <span class="terminal-title">souvik@devops:~</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line">
+            <span class="prompt-line">$</span>
+            <span class="cmd-text"> whoami</span>
+          </div>
+          <div class="terminal-output fade-in-1">
+            <span class="t-green">Souvik</span> — DevOps Engineer &amp; Cloud Architect
+          </div>
+          <div class="terminal-line fade-in-2">
+            <span class="prompt-line">$</span>
+            <span class="cmd-text"> cat mission.txt</span>
+          </div>
+          <div class="terminal-output fade-in-3">
+            I build infra that <span class="t-green">scales</span>, pipelines that <span class="t-green">ship fast</span>,
+            <br/>and systems that don't wake you up at 3am.
+          </div>
+          <div class="terminal-line fade-in-4">
+            <span class="prompt-line">$</span>
+            <span class="typed-cmd" id="typedCmd"></span><span class="cursor-blink" id="typedCursor">|</span>
+          </div>
+          <div class="terminal-output fade-in-5" id="typedOutput"></div>
+        </div>
+      </div>
+
+      <div class="hero-content fade-in-6">
+        <div class="hero-tag">Available for Freelance</div>
+        <h1>Hi, I'm <span class="t-green">Souvik.</span><br/>DevOps Engineer.</h1>
+        <p>End-to-end cloud infrastructure, CI/CD pipelines, and Kubernetes orchestration — delivered reliably, on your timeline.</p>
+        <div class="hero-btns">
+          <a href="#services" class="btn-primary">View Services</a>
+          <a href="#contact" class="btn-secondary">Let's Talk</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-stats fade-in-6">
+      <div class="stat">
+        <span class="stat-num t-green">5+</span>
+        <span class="stat-label">Years Experience</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-num t-green">20+</span>
+        <span class="stat-label">Projects Delivered</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-num t-green">3</span>
+        <span class="stat-label">Cloud Platforms</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-num t-green">99.9%</span>
+        <span class="stat-label">Avg Uptime SLA</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section class="section" id="about">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ cat about.txt</span>
+        <h2>About Me</h2>
+      </div>
+      <div class="about-grid">
+        <div class="about-text">
+          <p>I'm a DevOps engineer with a passion for building robust, automated infrastructure. By day I work on large-scale systems at my full-time role — by weekend, I take on freelance projects where I can bring that same expertise to smaller teams that need it most.</p>
+          <p>I believe good DevOps isn't just about tools — it's about building systems that give your developers confidence to ship, and give you peace of mind in production.</p>
+          <div class="about-tags">
+            <span>Infrastructure as Code</span>
+            <span>Cloud Native</span>
+            <span>GitOps</span>
+            <span>Site Reliability</span>
+            <span>DevSecOps</span>
+            <span>Automation First</span>
+          </div>
+        </div>
+        <div class="about-card">
+          <div class="about-photo-wrap">
+            <img src="assets/profile.png" alt="Souvik" class="about-photo" />
+            <div class="about-photo-name">Souvik</div>
+            <div class="about-photo-role">DevOps Engineer</div>
+          </div>
+          <div class="about-card-inner">
+            <div class="ac-line"><span class="t-green">name</span>       <span>Souvik</span></div>
+            <div class="ac-line"><span class="t-green">role</span>       <span>DevOps Engineer</span></div>
+            <div class="ac-line"><span class="t-green">available</span>  <span class="t-green">true</span></div>
+            <div class="ac-line"><span class="t-green">schedule</span>   <span>Weekends &amp; off-hours</span></div>
+            <div class="ac-line"><span class="t-green">clouds</span>     <span>AWS · OCI · GCP</span></div>
+            <div class="ac-line"><span class="t-green">timezone</span>   <span>IST (UTC+5:30)</span></div>
+            <div class="ac-line"><span class="t-green">response</span>   <span>&lt; 24 hours</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SKILLS -->
+  <section class="section section-alt" id="skills">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ ls ./skills/</span>
+        <h2>Tech Stack</h2>
+      </div>
+      <div class="skills-grid">
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> Cloud Platforms</div>
+          <div class="skill-tags">
+            <span class="skill-tag">AWS</span>
+            <span class="skill-tag">OCI</span>
+            <span class="skill-tag">GCP</span>
+            <span class="skill-tag">Azure</span>
+          </div>
+        </div>
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> Containers & Orchestration</div>
+          <div class="skill-tags">
+            <span class="skill-tag">Docker</span>
+            <span class="skill-tag">Kubernetes</span>
+            <span class="skill-tag">Helm</span>
+            <span class="skill-tag">containerd</span>
+          </div>
+        </div>
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> Infrastructure as Code</div>
+          <div class="skill-tags">
+            <span class="skill-tag">Terraform</span>
+            <span class="skill-tag">Ansible</span>
+            <span class="skill-tag">Pulumi</span>
+            <span class="skill-tag">CloudFormation</span>
+          </div>
+        </div>
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> CI/CD & GitOps</div>
+          <div class="skill-tags">
+            <span class="skill-tag">GitHub Actions</span>
+            <span class="skill-tag">Jenkins</span>
+            <span class="skill-tag">GitLab CI</span>
+            <span class="skill-tag">ArgoCD</span>
+            <span class="skill-tag">FluxCD</span>
+          </div>
+        </div>
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> Monitoring & Observability</div>
+          <div class="skill-tags">
+            <span class="skill-tag">Prometheus</span>
+            <span class="skill-tag">Grafana</span>
+            <span class="skill-tag">ELK Stack</span>
+            <span class="skill-tag">Datadog</span>
+            <span class="skill-tag">Loki</span>
+          </div>
+        </div>
+
+        <div class="skill-category">
+          <div class="skill-cat-title"><span class="t-green">##</span> OS & Scripting</div>
+          <div class="skill-tags">
+            <span class="skill-tag">Linux</span>
+            <span class="skill-tag">Bash</span>
+            <span class="skill-tag">Python</span>
+            <span class="skill-tag">YAML</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section class="section" id="services">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ cat services.json</span>
+        <h2>What I Can Do For You</h2>
+      </div>
+      <div class="services-grid">
+
+        <div class="service-card">
+          <div class="service-icon">☁️</div>
+          <h3>Cloud Infrastructure</h3>
+          <p>Design, provision, and manage scalable cloud environments on AWS, OCI, or GCP. VPCs, IAM, networking, cost optimisation — done right from day one.</p>
+          <div class="service-tags">
+            <span>AWS</span><span>OCI</span><span>GCP</span><span>Terraform</span>
+          </div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">🔁</div>
+          <h3>CI/CD Pipeline Setup</h3>
+          <p>End-to-end automated pipelines — build, test, security scan, and deploy. From zero to production-ready GitOps in days, not months.</p>
+          <div class="service-tags">
+            <span>GitHub Actions</span><span>Jenkins</span><span>ArgoCD</span>
+          </div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">🐳</div>
+          <h3>Container & K8s Orchestration</h3>
+          <p>Containerise your apps, set up Kubernetes clusters, configure auto-scaling, ingress, RBAC, and make your workloads truly cloud-native.</p>
+          <div class="service-tags">
+            <span>Docker</span><span>Kubernetes</span><span>Helm</span>
+          </div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">📦</div>
+          <h3>Infrastructure as Code</h3>
+          <p>Replace manual click-ops with reproducible, version-controlled infrastructure using Terraform and Ansible. Consistent across every environment.</p>
+          <div class="service-tags">
+            <span>Terraform</span><span>Ansible</span><span>GitOps</span>
+          </div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">📊</div>
+          <h3>Monitoring & Observability</h3>
+          <p>Full-stack observability setup — metrics, logs, traces, and alerting. Know what's broken before your users do.</p>
+          <div class="service-tags">
+            <span>Prometheus</span><span>Grafana</span><span>ELK</span>
+          </div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">🔒</div>
+          <h3>DevSecOps & Hardening</h3>
+          <p>Bake security into your pipeline. Container scanning, secrets management, network hardening, IAM audits, and compliance readiness.</p>
+          <div class="service-tags">
+            <span>Vault</span><span>Trivy</span><span>OPA</span><span>SAST</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- EXPERIENCE -->
+  <section class="section" id="experience">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ cat experience.log</span>
+        <h2>Work Experience</h2>
+      </div>
+      <div class="timeline">
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-card">
+            <div class="tc-header">
+              <div>
+                <div class="tc-role">Senior DevOps Engineer</div>
+                <div class="tc-company">Company Name <span class="tc-badge">Full-time</span></div>
+              </div>
+              <div class="tc-duration">Jan 2023 – Present</div>
+            </div>
+            <ul class="tc-points">
+              <li>Managed and scaled cloud infrastructure on AWS handling production workloads</li>
+              <li>Built and maintained CI/CD pipelines reducing deployment time by 60%</li>
+              <li>Led migration of legacy services to Kubernetes, improving reliability and cost efficiency</li>
+            </ul>
+            <div class="tc-tags">
+              <span>AWS</span><span>Kubernetes</span><span>Terraform</span><span>GitHub Actions</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-card">
+            <div class="tc-header">
+              <div>
+                <div class="tc-role">DevOps Engineer</div>
+                <div class="tc-company">Company Name <span class="tc-badge">Full-time</span></div>
+              </div>
+              <div class="tc-duration">Jun 2021 – Dec 2022</div>
+            </div>
+            <ul class="tc-points">
+              <li>Automated infrastructure provisioning using Terraform and Ansible across multiple environments</li>
+              <li>Set up monitoring and alerting with Prometheus and Grafana for 99.9% uptime SLA</li>
+            </ul>
+            <div class="tc-tags">
+              <span>GCP</span><span>Docker</span><span>Ansible</span><span>Prometheus</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- PROJECTS (PLACEHOLDER) -->
+  <section class="section section-alt" id="projects">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ ls ./projects/</span>
+        <h2>Projects</h2>
+      </div>
+      <div class="projects-placeholder">
+        <div class="terminal-window terminal-small">
+          <div class="terminal-header">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green-dot"></span>
+            <span class="terminal-title">projects.sh</span>
+          </div>
+          <div class="terminal-body">
+            <div class="terminal-line">
+              <span class="prompt-line">$</span>
+              <span class="cmd-text"> ls -la ./projects/</span>
+            </div>
+            <div class="terminal-output">
+              <span class="t-green">loading</span> project case studies...<br/>
+              <span class="t-yellow">status:</span> content being prepared<br/>
+              <span class="t-yellow">eta:</span>    coming soon<br/>
+              <span class="t-green">hint:</span>   check back after the weekend <span class="cursor-blink">_</span>
+            </div>
+          </div>
+        </div>
+        <p class="projects-note">Real-world case studies from cloud migrations, K8s setups, and CI/CD overhauls — anonymised and coming soon.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENDORSEMENTS -->
+  <section class="section" id="endorsements">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ cat endorsements.txt</span>
+        <h2>What Others Say</h2>
+      </div>
+      <div class="endorsement-slider">
+        <button class="slider-arrow left" id="sliderPrev" aria-label="Previous">&#8592;</button>
+
+        <div class="slider-track-wrap">
+          <div class="slider-track" id="sliderTrack">
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">Souvik completely transformed our deployment process. What used to take our team half a day now runs in under 10 minutes — fully automated and zero-touch. Absolute pro.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">AK</div>
+                <div>
+                  <div class="endorse-name">Arjun Kumar</div>
+                  <div class="endorse-role">CTO · TechStartup Pvt Ltd</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">We hired Souvik to set up our Kubernetes infrastructure from scratch. He delivered a production-ready cluster with full monitoring in a weekend. Highly recommended.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">PS</div>
+                <div>
+                  <div class="endorse-name">Priya Sharma</div>
+                  <div class="endorse-role">Engineering Lead · FinTech Co</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">Souvik's Terraform modules were clean, well-structured, and actually reusable. He knows what he's doing and explains the 'why' behind every decision — rare quality.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">RM</div>
+                <div>
+                  <div class="endorse-name">Rahul Mehta</div>
+                  <div class="endorse-role">Senior Engineer · SaaS Platform</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">Our AWS costs dropped by 35% after Souvik audited and restructured our infrastructure. He found things our internal team had missed for months. Worth every rupee.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">DG</div>
+                <div>
+                  <div class="endorse-name">Divya Gupta</div>
+                  <div class="endorse-role">Founder · E-commerce Startup</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">Working with Souvik on our CI/CD pipeline was a great experience. Fast, communicative, and delivers exactly what he promises — on time, every time.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">NK</div>
+                <div>
+                  <div class="endorse-name">Nikhil Kapoor</div>
+                  <div class="endorse-role">DevOps Manager · Enterprise IT</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+            <div class="endorse-card">
+              <div class="endorse-quote">"</div>
+              <p class="endorse-text">Souvik set up our entire observability stack — Prometheus, Grafana, Loki — in one weekend engagement. We now have full visibility into our systems for the first time.</p>
+              <div class="endorse-author">
+                <div class="endorse-avatar">SB</div>
+                <div>
+                  <div class="endorse-name">Sneha Bose</div>
+                  <div class="endorse-role">Tech Lead · HealthTech Startup</div>
+                </div>
+                <div class="endorse-stars">★★★★★</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <button class="slider-arrow right" id="sliderNext" aria-label="Next">&#8594;</button>
+      </div>
+      <div class="slider-dots" id="sliderDots"></div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section class="section" id="contact">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">$ ./hire_me.sh</span>
+        <h2>Let's Work Together</h2>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-text">
+          <p>I'm available for freelance DevOps work on <span class="t-green">weekends and off-hours</span>. Whether you need a one-time infrastructure setup or ongoing DevOps support — let's talk.</p>
+          <div class="contact-links">
+            <a href="https://github.com/sghosal-devops" target="_blank" rel="noopener" class="contact-link">
+              <span class="cl-icon">⚡</span>
+              <div>
+                <div class="cl-label">GitHub</div>
+                <div class="cl-val">github.com/sghosal-devops</div>
+              </div>
+            </a>
+            <a href="https://www.linkedin.com/in/souvik-ghosal-13662016b/" target="_blank" rel="noopener" class="contact-link">
+              <span class="cl-icon">🔗</span>
+              <div>
+                <div class="cl-label">LinkedIn</div>
+                <div class="cl-val">souvik-ghosal</div>
+              </div>
+            </a>
+            <a href="https://mail.google.com/mail/?view=cm&to=souvikghosal1997@gmail.com" target="_blank" rel="noopener" class="contact-link">
+              <span class="cl-icon">📧</span>
+              <div>
+                <div class="cl-label">Email</div>
+                <div class="cl-val">souvikghosal1997@gmail.com</div>
+              </div>
+            </a>
+          </div>
+        </div>
+        <div class="contact-card">
+          <div class="cc-header">
+            <span class="t-green">// start a conversation</span>
+          </div>
+          <div class="cc-body">
+            <div class="cc-field">
+              <label>What do you need?</label>
+              <div class="cc-options">
+                <span>CI/CD Setup</span>
+                <span>Cloud Migration</span>
+                <span>K8s Cluster</span>
+                <span>IaC Audit</span>
+                <span>Monitoring</span>
+                <span>Other</span>
+              </div>
+            </div>
+            <div class="cc-note">
+              <span class="t-green">$</span> Reach out via email or LinkedIn above.<br/>
+              <span class="t-green">$</span> Response within <span class="t-green">24 hours</span>, always.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-logo">
+        <span class="prompt">~/</span><span>souvik</span>
+      </div>
+      <p class="footer-copy">Built with ☕ and a terminal. &copy; 2026 Souvik.</p>
+      <div class="footer-links">
+        <a href="#home">top</a>
+        <a href="#services">services</a>
+        <a href="#contact">contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
