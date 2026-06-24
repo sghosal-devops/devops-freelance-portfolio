@@ -160,109 +160,118 @@
   <section class="section section-alt" id="skills">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">$ ls ./skills/</span>
+        <span class="section-tag">$ kubectl describe skills souvik</span>
         <h2>Tech Stack</h2>
       </div>
-      <div class="skills-grid">
 
-        <div class="skill-category sc-cloud" data-num="01">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">01</span>
-              <span class="sc-title">Cloud Platforms</span>
-            </div>
-            <span class="sc-level">Expert</span>
-          </div>
-          <div class="skill-tags">
-            <span class="skill-tag">AWS</span>
-            <span class="skill-tag">OCI</span>
-            <span class="skill-tag">GCP</span>
-            <span class="skill-tag">Azure</span>
-          </div>
+      <div class="skills-terminal">
+        <div class="skills-term-bar">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green-dot"></span>
+          <span class="skills-term-title">souvik@devops:~ $ kubectl describe skills --output=yaml</span>
         </div>
+        <div class="skills-yaml">
 
-        <div class="skill-category sc-containers" data-num="02">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">02</span>
-              <span class="sc-title">Containers & Orchestration</span>
+          <div class="skill-entry sc-cloud">
+            <div class="se-header">
+              <span class="se-key">cloud_platforms</span><span class="se-colon">:</span>
+              <span class="sc-level">Expert</span>
             </div>
-            <span class="sc-level">Expert</span>
-          </div>
-          <div class="skill-tags">
-            <span class="skill-tag">Docker</span>
-            <span class="skill-tag">Kubernetes</span>
-            <span class="skill-tag">Helm</span>
-            <span class="skill-tag">containerd</span>
-          </div>
-        </div>
-
-        <div class="skill-category sc-iac" data-num="03">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">03</span>
-              <span class="sc-title">Infrastructure as Code</span>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">AWS</span>
+                <span class="skill-tag">OCI</span>
+                <span class="skill-tag">GCP</span>
+                <span class="skill-tag">Azure</span>
+              </div>
             </div>
-            <span class="sc-level">Advanced</span>
           </div>
-          <div class="skill-tags">
-            <span class="skill-tag">Terraform</span>
-            <span class="skill-tag">Ansible</span>
-            <span class="skill-tag">Pulumi</span>
-            <span class="skill-tag">CloudFormation</span>
-          </div>
-        </div>
 
-        <div class="skill-category sc-cicd" data-num="04">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">04</span>
-              <span class="sc-title">CI/CD & GitOps</span>
+          <div class="skill-entry sc-containers">
+            <div class="se-header">
+              <span class="se-key">containers_orchestration</span><span class="se-colon">:</span>
+              <span class="sc-level">Expert</span>
             </div>
-            <span class="sc-level">Advanced</span>
-          </div>
-          <div class="skill-tags">
-            <span class="skill-tag">GitHub Actions</span>
-            <span class="skill-tag">Jenkins</span>
-            <span class="skill-tag">GitLab CI</span>
-            <span class="skill-tag">ArgoCD</span>
-            <span class="skill-tag">FluxCD</span>
-          </div>
-        </div>
-
-        <div class="skill-category sc-monitoring" data-num="05">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">05</span>
-              <span class="sc-title">Monitoring & Observability</span>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">Docker</span>
+                <span class="skill-tag">Kubernetes</span>
+                <span class="skill-tag">Helm</span>
+                <span class="skill-tag">containerd</span>
+              </div>
             </div>
-            <span class="sc-level">Advanced</span>
           </div>
-          <div class="skill-tags">
-            <span class="skill-tag">Prometheus</span>
-            <span class="skill-tag">Grafana</span>
-            <span class="skill-tag">ELK Stack</span>
-            <span class="skill-tag">Datadog</span>
-            <span class="skill-tag">Loki</span>
-          </div>
-        </div>
 
-        <div class="skill-category sc-os" data-num="06">
-          <div class="sc-head">
-            <div class="sc-meta">
-              <span class="sc-num">06</span>
-              <span class="sc-title">OS & Scripting</span>
+          <div class="skill-entry sc-iac">
+            <div class="se-header">
+              <span class="se-key">infrastructure_as_code</span><span class="se-colon">:</span>
+              <span class="sc-level">Advanced</span>
             </div>
-            <span class="sc-level">Expert</span>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">Terraform</span>
+                <span class="skill-tag">Ansible</span>
+                <span class="skill-tag">Pulumi</span>
+                <span class="skill-tag">CloudFormation</span>
+              </div>
+            </div>
           </div>
-          <div class="skill-tags">
-            <span class="skill-tag">Linux</span>
-            <span class="skill-tag">Bash</span>
-            <span class="skill-tag">Python</span>
-            <span class="skill-tag">YAML</span>
-          </div>
-        </div>
 
+          <div class="skill-entry sc-cicd">
+            <div class="se-header">
+              <span class="se-key">cicd_gitops</span><span class="se-colon">:</span>
+              <span class="sc-level">Advanced</span>
+            </div>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">GitHub Actions</span>
+                <span class="skill-tag">Jenkins</span>
+                <span class="skill-tag">GitLab CI</span>
+                <span class="skill-tag">ArgoCD</span>
+                <span class="skill-tag">FluxCD</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="skill-entry sc-monitoring">
+            <div class="se-header">
+              <span class="se-key">monitoring_observability</span><span class="se-colon">:</span>
+              <span class="sc-level">Advanced</span>
+            </div>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">Prometheus</span>
+                <span class="skill-tag">Grafana</span>
+                <span class="skill-tag">ELK Stack</span>
+                <span class="skill-tag">Datadog</span>
+                <span class="skill-tag">Loki</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="skill-entry sc-os">
+            <div class="se-header">
+              <span class="se-key">os_scripting</span><span class="se-colon">:</span>
+              <span class="sc-level">Expert</span>
+            </div>
+            <div class="se-tools">
+              <span class="se-prop">  tools:</span>
+              <div class="se-tags">
+                <span class="skill-tag">Linux</span>
+                <span class="skill-tag">Bash</span>
+                <span class="skill-tag">Python</span>
+                <span class="skill-tag">YAML</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   </section>
